@@ -37,14 +37,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, default='./configs/sample/sample_MolDiff.yml')
     parser.add_argument('--outdir', type=str, default='./outputs')
-    parser.add_argument('--device', type=str, default='cuda:7')
+    parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--batch_size', type=int, default=0)
     args = parser.parse_args()
 
     # # Load configs
     config = load_config(args.config)
     config_name = os.path.basename(args.config)[:os.path.basename(args.config).rfind('.')]
-    seed_all(config.sample.seed + np.sum([ord(s) for s in args.outdir]))
+    seed_all(config.sample.seed + int(np.sum([ord(s) for s in args.outdir])))
     # load ckpt and train config
     ckpt = torch.load(config.model.checkpoint, map_location=args.device)
     train_config = ckpt['config']

@@ -6,8 +6,8 @@ bond_predictor: ckpt/bondpred.pt
 
 sample:
   seed: 2023
-  batch_size: 512
-  num_mols: 1000
+  batch_size: 4
+  num_mols: 8
   save_traj_prob: 0.02
   guidance:
     - uncertainty
