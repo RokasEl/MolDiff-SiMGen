@@ -40,12 +40,19 @@ def mol_to_ase_atoms(mol):
     return ase.Atoms(symbols, positions)
 
 
-def traj_to_ase(out, featurizer):
+def traj_to_ase(out, featurizer, idx:int|None=None):
     """Convert trajectory to ASE Atoms list."""
     traj = []
     nodes_to_elements = featurizer.nodetype_to_ele.copy()
     nodes_to_elements[7] = 6
-    for nodes, positions, _ in zip(*out):
+    if idx is not None:
+        nodes, positions, _ = out
+        nodes = nodes[idx]
+        positions = positions[idx]
+        numbers = [nodes_to_elements[n] for n in np.argmax(nodes, axis=1)]
+        atoms = ase.Atoms(numbers, positions=positions)
+        return atoms
+    for nodes, positions, _ in zip(*out, strict=True):
         numbers = [nodes_to_elements[n] for n in np.argmax(nodes, axis=1)]
         atoms = ase.Atoms(numbers, positions=positions)
         traj.append(atoms)
@@ -175,8 +182,7 @@ def main(
             smiles = Chem.MolToSmiles(rdmol)
             mol_info['smiles'] = smiles
             pool.finished.append(mol_info)
-            logging.info(len(output_mol["traj"][-1]))
-            last_frame = traj_to_ase(output_mol["traj"][-2:], featurizer)[-1]
+            last_frame = traj_to_ase(output_mol["traj"], featurizer, -1)
             pool.last_frames.append(last_frame)
             aio.write(results_path/"last_frames.xyz", last_frame, append=True)
             
@@ -192,4 +198,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    main(batch_size=2, num_mols=2)
