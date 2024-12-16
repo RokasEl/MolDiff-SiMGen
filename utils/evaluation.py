@@ -1,3 +1,4 @@
+import logging
 from rdkit import Chem
 import numpy as np
 from tqdm import tqdm
@@ -335,6 +336,9 @@ def calculate_validity(output_dir, is_edm):
     Calculate the validity and connectivity of the sampled molecules
     """
     samples_path = os.path.join(output_dir, 'samples_all.pt')
+    if not os.path.exists(samples_path):
+        logging.warning(f"File {samples_path} not found.")
+        return {'validity': None, 'connectivity': None}
     pool = torch.load(samples_path)
     if not is_edm:
         n_success = len(pool['finished'])

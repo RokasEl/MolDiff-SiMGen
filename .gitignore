@@ -9,3 +9,8 @@ __pycache__/
 outputs/
 *.pt
 logs/
+results/
+data/
+screen_configs/
+*.log
+launch_*

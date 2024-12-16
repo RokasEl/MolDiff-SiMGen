@@ -1,5 +1,6 @@
 import sys
 import os
+from pathlib import Path
 import argparse
 import pandas as pd
 import pickle
@@ -65,14 +66,13 @@ def load_mols_from_dataset(dataset_type):
 
 def load_mols_from_generated(exp_name, result_root):
     # prepare data path
-    all_exp_paths = os.listdir(result_root)
-    sdf_dir = [path for path in all_exp_paths
-                      if (path.startswith(exp_name) and path.endswith('_SDF'))]
-    assert len(sdf_dir) == 1, f'Found more than one or none sdf directory of sampling with prefix `{exp_name}` and suffix `_SDF` in {result_root}: {sdf_dir}'
-    sdf_dir = sdf_dir[0]
+    exp_dir = Path(result_root)/exp_name
+    sdf_dir = exp_dir/"SDF"
+    assert sdf_dir.exists(), f'No sdf directory of sampling with prefix `{exp_name}` and suffix `_SDF` in {result_root}'
     
-    sdf_dir = os.path.join(args.result_root, sdf_dir)
-    metrics_dir = sdf_dir.replace('_SDF', '')
+    # metrics_dir = sdf_dir.replace('_SDF', '')
+    metrics_dir = exp_dir/'metrics'
+    metrics_dir.mkdir(exist_ok=True)
     df_path = os.path.join(metrics_dir, 'mols.csv')
     mol_names = [mol_name for mol_name in os.listdir(sdf_dir) if (mol_name[-4:] == '.sdf') and ('traj' not in mol_name) ]
     mol_ids = np.sort([int(mol_name[:-4]) for mol_name in mol_names])
