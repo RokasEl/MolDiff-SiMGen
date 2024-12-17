@@ -4,4 +4,5 @@ element_sigmas:
   7: 0.38649593188139597
 experiment_name: test
 guidance_strength: 0.08614409318405924
+bond_guidance_strength: 0.0000
 num_mols: 2
