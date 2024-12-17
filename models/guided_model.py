@@ -139,7 +139,7 @@ class GuidedMolDiff(MolDiff):
                     node_types = log_sample_categorical(log_node_type_unmasked)
                     atoms = to_ase(node_types, pos_prev, batch_node, featurizer)
                     simgen_batch = simgen_calc.batch_atoms(atoms)
-                    simgen_force = simgen_calc(simgen_batch, 1 - time_step[0]/self.num_timesteps+1e-3)
+                    simgen_force = simgen_calc(simgen_batch, 1 - i/self.num_timesteps+1e-3)
                     force_norms = (simgen_force**2).sum(dim=-1).sqrt()
                     force_norms = scatter_max(force_norms, batch_node, dim=0)[0][batch_node]
                     simgen_scale = mean_moldiff_step_size * simgen_gui_scale

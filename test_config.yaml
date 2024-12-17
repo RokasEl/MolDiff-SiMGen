@@ -1,0 +1,7 @@
+batch_size: 2
+default_sigma: 0.3108293369371529
+element_sigmas:
+  7: 0.38649593188139597
+experiment_name: test
+guidance_strength: 0.08614409318405924
+num_mols: 2
