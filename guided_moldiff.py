@@ -201,7 +201,7 @@ def main(config_path: str):
                 smiles_f.write(mol_info["smiles"] + "\n")
                 rdmol = mol_info["rdmol"]
                 Chem.MolToMolFile(rdmol, str(sdf_dir / f"{current_index}.sdf"))
-
+    torch.save(pool, results_path / "samples_all.pt")
 
 if __name__ == "__main__":
     # app()
