@@ -206,5 +206,5 @@ def main(config_path: str):
     torch.save(pool, results_path / "samples_all.pt")
 
 if __name__ == "__main__":
-    # app()
-    main("./test_config.yaml")
+    app()
+    # main("./test_config.yaml")
