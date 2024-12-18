@@ -34,6 +34,7 @@ class Config:
     batch_size: int
     element_sigmas: dict[int, float] | None = None
     bond_guidance_strength: float = 0
+    num_replicates: int = 1
     max_size: int = 20
 
 
@@ -162,6 +163,7 @@ def main(config_path: str):
             featurizer=featurizer,
             simgen_calc=sim_calc,
             simgen_gui_scale=config.guidance_strength,
+            num_replicates=config.num_replicates,
         )
         outputs = {
             key: [v.cpu().numpy() for v in value] for key, value in outputs.items()
