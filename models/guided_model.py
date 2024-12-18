@@ -11,13 +11,13 @@ from .model import MolDiff
 from .diffusion import log_sample_categorical
 
 
-def to_ase_single(node_types, pos_prev, featurizer):
+def to_ase_single(node_types: torch.Tensor, pos_prev: torch.Tensor, featurizer) -> ase.Atoms:
     numbers = [featurizer.nodetype_to_ele[x.item()] for x in node_types]
     pos = pos_prev.detach().cpu().numpy()
     return ase.Atoms(numbers=numbers, positions=pos, cell=None)
 
 
-def to_ase(node_types, pos_prev, batch_idx, featurizer):
+def to_ase(node_types: torch.Tensor, pos_prev: torch.Tensor, batch_idx: torch.Tensor, featurizer) -> list[ase.Atoms]:
     atoms = []
     mol_indices = torch.unique(batch_idx)
     for mol_idx in mol_indices:
@@ -34,7 +34,7 @@ def prepare_atoms(
     batch_idx: torch.Tensor,
     featurizer,
     num_replicas: int = 1,
-):
+) -> tuple[list[ase.Atoms], torch.Tensor | None, torch.Tensor]:
     if num_replicas > 1:
         num_graphs = batch_idx.max().item() + 1
         logits_rep = logits.repeat(num_replicas, 1)
@@ -47,30 +47,27 @@ def prepare_atoms(
         graph_indices = torch.arange(num_graphs, device=batch_idx.device).repeat(
             num_replicas
         )
-        return atoms, node_types, graph_indices, batch_idx_rep
+        return atoms, graph_indices, batch_idx_rep
     else:
         node_types = log_sample_categorical(logits)
         atoms = to_ase(node_types, pos, batch_idx, featurizer)
-        return atoms, None, None, batch_idx
+        return atoms, None, batch_idx
 
 
 def _simgen_guidance(
-    simgen_calc,
+    simgen_calc: MaceSimilarityCalculator,
     featurizer,
-    logits,
-    pos_prev,
-    batch_idx,
-    gui_scale,
-    noise_level,
-    use_importance_sampling=False,
-    num_replicas=1,
-):
-    mean_moldiff_step_size = torch.norm((pos_prev - pos_prev).detach(), dim=-1).mean()
+    logits: torch.Tensor,
+    pos_prev: torch.Tensor,
+    batch_idx: torch.Tensor,
+    gui_scale: float|torch.Tensor,
+    noise_level: float,
+    num_replicas: int = 1,
+) -> torch.Tensor:
     with torch.enable_grad():
         assert featurizer is not None, "featurizer required"
         assert simgen_calc is not None, "simgen_calc required"
-        num_replicas = num_replicas if use_importance_sampling else 1
-        atoms, node_types_repeated, graph_indices, batch_idx_sum = prepare_atoms(
+        atoms, graph_indices, batch_idx_sum = prepare_atoms(
             logits, pos_prev, batch_idx, featurizer, num_replicas
         )
         simgen_batch = simgen_calc.batch_atoms(atoms)
@@ -79,21 +76,21 @@ def _simgen_guidance(
             embeddings, simgen_batch.node_attrs, noise_level
         )
         log_dens = scatter_sum(log_dens, batch_idx_sum, dim=0)
-        if use_importance_sampling:
+        if num_replicas > 1:
             assert graph_indices is not None
-            assert isinstance(node_types_repeated, torch.Tensor)
             log_dens, argmax = scatter_max(log_dens, graph_indices, dim=0)
-            force_mask = torch.cat([torch.where(batch_idx_sum==x)[0] for x in argmax])
+            force_mask = torch.cat([torch.where(batch_idx_sum == x)[0] for x in argmax])
         else:
             force_mask = torch.arange(len(batch_idx_sum), device=batch_idx.device)
         simgen_force = simgen_calc._get_gradient(simgen_batch.positions, log_dens)
         simgen_force = simgen_force[force_mask]
-        force_norms = (simgen_force**2).sum(dim=-1).sqrt()
+
+        force_norms = (simgen_force ** 2).sum(dim=-1).sqrt()
         force_norms = scatter_max(force_norms, batch_idx, dim=0)[0][batch_idx]
-        simgen_scale = mean_moldiff_step_size * gui_scale
+
         mult = torch.where(
-            force_norms > simgen_scale,
-            simgen_scale / force_norms,
+            force_norms > gui_scale,
+            gui_scale / force_norms,
             torch.ones_like(force_norms),
         )
         delta = simgen_force * mult[:, None]
@@ -111,11 +108,10 @@ class GuidedMolDiff(MolDiff):
         bond_predictor: None | nn.Module = None,
         featurizer=None,
         simgen_calc: MaceSimilarityCalculator | None = None,
-        simgen_gui_scale=0.0,  # additional param for simgen guidance scale
-        use_simgen_importance_sampling=False,  # remove this and just check num replicas
-        num_replicates=1,  # additional param for simgen importance sampling
-        bond_gui_scale=0.0,  # additional param for bond guidance scale
-    ):
+        simgen_gui_scale: float = 0.0,
+        num_replicas: int = 1,
+        bond_gui_scale: float = 0.0,
+    ) -> dict[str, list[torch.Tensor]]:
         device = batch_node.device
         n_nodes_all = len(batch_node)
         n_halfedges_all = len(batch_halfedge)
@@ -208,16 +204,16 @@ class GuidedMolDiff(MolDiff):
 
             # SiMGen guidance
             if simgen_calc is not None and simgen_gui_scale > 0.0:
+                gui_scale = simgen_gui_scale * torch.norm(pos_prev-pred_pos, dim=-1).mean()
                 delta = _simgen_guidance(
                     simgen_calc,
                     featurizer,
-                    pred_node,
+                    pred_node[:, :-1],
                     pos_prev,
                     batch_node,
-                    simgen_gui_scale,
-                    i/self.num_timesteps+1e-3,
-                    use_simgen_importance_sampling,
-                    num_replicates,
+                    gui_scale,
+                    i / self.num_timesteps + 1e-3,
+                    num_replicas,
                 )
                 pos_prev = pos_prev + delta
 
@@ -234,7 +230,6 @@ class GuidedMolDiff(MolDiff):
                         batch_edge,
                         time_step,
                     )
-                    # Use a simple metric: increase probability of valid bonds
                     uncertainty = torch.sigmoid(-torch.logsumexp(pred_bond, dim=-1))
                     uncertainty = uncertainty.log().sum()
                     delta_bond = (
