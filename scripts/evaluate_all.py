@@ -108,7 +108,7 @@ if __name__ == '__main__':
     metrics_list = [
         'drug_chem',  # qed, sa, logp, lipinski
         'count_prop',  # n_atoms, n_bonds, n_rings, n_rotatable, weight, n_hacc, n_hdon
-        'global_3d',  # rmsd_max, rmsd_min, rmsd_median
+        #'global_3d',  # rmsd_max, rmsd_min, rmsd_median
         'frags_counts',  # cnt_eleX, cnt_bondX, cnt_ringX(size)
         
         'local_3d',  # bond length, bond angle, dihedral angle

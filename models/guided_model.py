@@ -3,7 +3,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from tqdm import tqdm
-from torch_scatter import scatter_max, scatter_sum
+from torch_scatter import scatter_max, scatter_sum, scatter_logsumexp
 import ase
 
 from simgen.calculators import MaceSimilarityCalculator
@@ -80,6 +80,50 @@ def _simgen_guidance(
             embeddings, simgen_batch.node_attrs, noise_level
         )
         log_dens = scatter_sum(log_dens, batch_idx_sum, dim=0)
+        if num_replicas > 1:
+            assert graph_indices is not None
+            log_dens, argmax = scatter_max(log_dens, graph_indices, dim=0)
+            force_mask = torch.cat([torch.where(batch_idx_sum == x)[0] for x in argmax])
+        else:
+            force_mask = torch.arange(len(batch_idx_sum), device=batch_idx.device)
+        simgen_force = simgen_calc._get_gradient(simgen_batch.positions, log_dens)
+        simgen_force = simgen_force[force_mask]
+
+        force_norms = (simgen_force ** 2).sum(dim=-1).sqrt()
+        force_norms = scatter_max(force_norms, batch_idx, dim=0)[0][batch_idx]
+
+        mult = torch.where(
+            force_norms > gui_scale,
+            gui_scale / force_norms,
+            torch.ones_like(force_norms),
+        )
+        delta = simgen_force * mult[:, None]
+    return delta
+
+def _simgen_guidance_inverse_sum_order(
+    simgen_calc: MaceSimilarityCalculator,
+    featurizer,
+    logits: torch.Tensor,
+    pos_prev: torch.Tensor,
+    batch_idx: torch.Tensor,
+    gui_scale: float|torch.Tensor,
+    noise_level: float,
+    num_replicas: int = 1,
+) -> torch.Tensor:
+    with torch.enable_grad():
+        assert featurizer is not None, "featurizer required"
+        assert simgen_calc is not None, "simgen_calc required"
+        atoms, graph_indices, batch_idx_sum = prepare_atoms(
+            logits, pos_prev, batch_idx, featurizer, num_replicas
+        )
+        simgen_batch = simgen_calc.batch_atoms(atoms)
+        embeddings = simgen_calc._get_node_embeddings(simgen_batch)
+        
+        squared_distance_matrix = simgen_calc._calculate_distance_matrix(embeddings, simgen_batch.node_attrs)
+        additional_multiplier = 119 * (1 - (noise_level / 10) ** 0.25) + 1 if noise_level <= 10 else 1
+        squared_distance_matrix = squared_distance_matrix * additional_multiplier # (N_config_atoms, N_ref_atoms)
+        log_dens = scatter_logsumexp(-squared_distance_matrix / 2, batch_idx_sum, dim=0) # (N_graphs, N_ref_atoms)
+        log_dens = log_dens.sum(dim=-1) # (N_graphs,)
         if num_replicas > 1:
             assert graph_indices is not None
             log_dens, argmax = scatter_max(log_dens, graph_indices, dim=0)
@@ -215,7 +259,7 @@ class GuidedMolDiff(MolDiff):
                     gui_scale = simgen_gui_scale
                 else:
                     raise ValueError(f"Invalid scale mode: {simgen_scale_mode}")
-                delta = _simgen_guidance(
+                delta = _simgen_guidance_inverse_sum_order(
                     simgen_calc,
                     featurizer,
                     pred_node[:, :-1],
