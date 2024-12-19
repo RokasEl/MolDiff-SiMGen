@@ -1,3 +1,4 @@
+import enum
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -10,6 +11,9 @@ from simgen.calculators import MaceSimilarityCalculator
 from .model import MolDiff
 from .diffusion import log_sample_categorical
 
+class ScaleMode(enum.Enum):
+    FRACTIONAL = "fractional"
+    ABSOLUTE = "absolute"
 
 def to_ase_single(node_types: torch.Tensor, pos_prev: torch.Tensor, featurizer) -> ase.Atoms:
     numbers = [featurizer.nodetype_to_ele[x.item()] for x in node_types]
@@ -109,6 +113,7 @@ class GuidedMolDiff(MolDiff):
         featurizer=None,
         simgen_calc: MaceSimilarityCalculator | None = None,
         simgen_gui_scale: float = 0.0,
+        simgen_scale_mode: ScaleMode = ScaleMode.FRACTIONAL,
         num_replicas: int = 1,
         bond_gui_scale: float = 0.0,
     ) -> dict[str, list[torch.Tensor]]:
@@ -204,7 +209,12 @@ class GuidedMolDiff(MolDiff):
 
             # SiMGen guidance
             if simgen_calc is not None and simgen_gui_scale > 0.0:
-                gui_scale = simgen_gui_scale * torch.norm(pos_prev-pred_pos, dim=-1).mean()
+                if simgen_scale_mode == ScaleMode.FRACTIONAL:
+                    gui_scale = simgen_gui_scale * torch.norm(pos_prev-pred_pos, dim=-1).mean()
+                elif simgen_scale_mode == ScaleMode.ABSOLUTE:
+                    gui_scale = simgen_gui_scale
+                else:
+                    raise ValueError(f"Invalid scale mode: {simgen_scale_mode}")
                 delta = _simgen_guidance(
                     simgen_calc,
                     featurizer,

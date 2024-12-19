@@ -15,14 +15,14 @@ from simgen.calculators import MaceSimilarityCalculator
 from simgen.utils import setup_logger
 from mace.calculators import mace_off
 
-from models.guided_model import GuidedMolDiff
+from models.guided_model import GuidedMolDiff, ScaleMode
 from models.bond_predictor import BondPredictor
 from ase.optimize import LBFGS
 from utils.reconstruct import reconstruct_from_generated_with_edges, MolReconsError
 from utils.sample import seperate_outputs
 from utils.transforms import FeaturizeMol, make_data_placeholder
 
-app = typer.Typer()
+app = typer.Typer(pretty_exceptions_show_locals=False)
 
 
 @dataclass
@@ -36,14 +36,16 @@ class Config:
     bond_guidance_strength: float = 0
     num_replicas: int = 1
     max_size: int = 20
+    scale_mode: ScaleMode = ScaleMode.FRACTIONAL
 
 
-def load_molecule_from_smiles(smiles):
+def load_molecule_from_smiles(smiles, removeHs=True):
     mol = Chem.MolFromSmiles(smiles)
     mol = Chem.AddHs(mol)
     embedding_params = rdDistGeom.ETKDGv3()
     rdDistGeom.EmbedMolecule(mol, embedding_params)
-    mol = Chem.RemoveHs(mol)
+    if removeHs:
+        mol = Chem.RemoveHs(mol)
     return mol
 
 
@@ -77,7 +79,7 @@ def main(config_path: str):
     with open(config_path, "r") as f:
         cfg = yaml.safe_load(f)
     config = Config(**cfg)
-
+    config.scale_mode = ScaleMode(config.scale_mode)
     setup_logger(tag="guided_moldiff", level=logging.INFO, directory="./logs")
     results_path = pathlib.Path(f"./results/{config.experiment_name}/")
     results_path.mkdir(parents=True, exist_ok=True)
@@ -85,9 +87,9 @@ def main(config_path: str):
     df = pd.read_csv("./fda_approved_drugs.txt", sep="\t")
     df = df.query("~smiles.isna()")
     penicillin_smiles = df.query("generic_name == 'Penicillin G'")["smiles"].values[0]
-    penicillin_mol = load_molecule_from_smiles(penicillin_smiles)
+    penicillin_mol = load_molecule_from_smiles(penicillin_smiles, removeHs=False)
     patt = Chem.MolFromSmarts("O=C1CC2N1CCS2")
-    core_ids = penicillin_mol.GetSubstructMatch(patt)
+    core_ids = np.asarray(penicillin_mol.GetSubstructMatch(patt)).flatten()
     ase_mol = mol_to_ase_atoms(penicillin_mol)
 
     ckpt = torch.load("./ckpt/MolDiff.pt", map_location="cuda")
@@ -123,9 +125,10 @@ def main(config_path: str):
     z_table = calc.z_table
     ase_mol.calc = calc
     dyn = LBFGS(ase_mol)
-    dyn.run(fmax=1e-3)
+    dyn.run(fmax=5e-3)
     ase_mol.calc = None
-    ase_mol = ase_mol[ase_mol.numbers != 1][core_ids]
+    core_atom_mask = np.zeros(len(ase_mol), dtype=bool)
+    core_atom_mask[core_ids] = True
 
     element_sigma_array = (
         np.ones_like(z_table.zs, dtype=np.float32) * config.default_sigma
@@ -137,6 +140,7 @@ def main(config_path: str):
     sim_calc = MaceSimilarityCalculator(
         calc.models[0],
         reference_data=[ase_mol],
+        ref_data_mask=[core_atom_mask],
         device="cuda",
         alpha=0,
         max_norm=None,
@@ -163,6 +167,7 @@ def main(config_path: str):
             featurizer=featurizer,
             simgen_calc=sim_calc,
             simgen_gui_scale=config.guidance_strength,
+            simgen_scale_mode=config.scale_mode,
             num_replicas=config.num_replicas,
         )
         outputs = {

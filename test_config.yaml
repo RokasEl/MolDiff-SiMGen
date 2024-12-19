@@ -1,8 +1,11 @@
-batch_size: 2
+batch_size: 8
 default_sigma: 0.3108293369371529
 element_sigmas:
-  7: 0.38649593188139597
+  7: 0.25
+  16: 0.25
 experiment_name: test
-guidance_strength: 0.08614409318405924
+guidance_strength: 0.01
 bond_guidance_strength: 0.0001
 num_mols: 2
+num_replicas: 1
+scale_mode: absolute
