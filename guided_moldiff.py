@@ -81,7 +81,7 @@ def main(config_path: str):
     config = Config(**cfg)
     config.scale_mode = ScaleMode(config.scale_mode)
     setup_logger(tag="guided_moldiff", level=logging.INFO, directory="./logs")
-    results_path = pathlib.Path(f"./results/{config.experiment_name}/")
+    results_path = pathlib.Path(f"./results_inverse_summation/{config.experiment_name}/")
     results_path.mkdir(parents=True, exist_ok=True)
 
     df = pd.read_csv("./fda_approved_drugs.txt", sep="\t")

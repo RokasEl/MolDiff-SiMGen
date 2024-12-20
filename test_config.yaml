@@ -4,7 +4,7 @@ element_sigmas:
   7: 0.25
   16: 0.25
 experiment_name: test
-guidance_strength: 0.05
+guidance_strength: 0.20
 bond_guidance_strength: 0.0000
 num_mols: 512
 num_replicas: 1

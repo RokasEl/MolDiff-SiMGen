@@ -6,18 +6,18 @@ import sys
 # Parameters to randomly screen
 num_configs = int(sys.argv[1]) if len(sys.argv) > 1 else 10
 mode = sys.argv[2] if len(sys.argv) > 2 else "w"  # Default to overwrite mode
-output_dir = "screen_configs"
+output_dir = "screen_configs_inverse_summation"
 os.makedirs(output_dir, exist_ok=True)
 
 # Initialize RNG for reproducibility
 seed = int(sys.argv[3]) if len(sys.argv) > 3 else 42
 rng = np.random.default_rng(seed)
 
-low = 1e-2
-high = 1e-1
+low = 5e-2
+high = 5e-1
 
-abs_low = 1e-2
-abs_high = 0.125
+abs_low = 0.1
+abs_high = 1.
 
 # Determine starting index based on mode
 if mode == "a":
@@ -51,8 +51,8 @@ for i in range(start_idx, start_idx + num_configs):
         "scale_mode": str(scale_mode),
         "default_sigma": default_sigma,
         "element_sigmas": {
-            7: rng.uniform(0.01,1)*default_sigma,
-            16: rng.uniform(0.01,1)*default_sigma,
+            7: rng.uniform(0.1,1)*default_sigma,
+            16: rng.uniform(0.1,1)*default_sigma,
         },
         "bond_guidance_strength": bond_guidance_strength,
         "num_mols": 1280,
