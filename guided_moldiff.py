@@ -90,7 +90,8 @@ def main(config_path: str):
     penicillin_mol = load_molecule_from_smiles(penicillin_smiles, removeHs=False)
     patt = Chem.MolFromSmarts("O=C1CC2N1CCS2")
     core_ids = np.asarray(penicillin_mol.GetSubstructMatch(patt)).flatten()
-    ase_mol = mol_to_ase_atoms(penicillin_mol)
+    pdb_traj = aio.read("penicillin_trajectory.pdb", index=":")
+    conformers = pdb_traj[::100]
 
     ckpt = torch.load("./ckpt/MolDiff.pt", map_location="cuda")
     train_config = ckpt["config"]
@@ -123,11 +124,13 @@ def main(config_path: str):
 
     calc = mace_off("medium", device="cuda", default_dtype="float32")
     z_table = calc.z_table
-    ase_mol.calc = calc
-    dyn = LBFGS(ase_mol)
-    dyn.run(fmax=5e-3)
-    ase_mol.calc = None
-    core_atom_mask = np.zeros(len(ase_mol), dtype=bool)
+    
+    for atoms in conformers:
+        atoms.calc = calc
+        dyn = LBFGS(atoms)
+        dyn.run(fmax=0.5)
+        atoms.calc = None
+    core_atom_mask = np.zeros(len(conformers[0]), dtype=bool)
     core_atom_mask[core_ids] = True
 
     element_sigma_array = (
@@ -139,8 +142,8 @@ def main(config_path: str):
 
     sim_calc = MaceSimilarityCalculator(
         calc.models[0],
-        reference_data=[ase_mol],
-        ref_data_mask=[core_atom_mask],
+        reference_data=conformers,
+        ref_data_mask=[core_atom_mask]*len(conformers),
         device="cuda",
         alpha=0,
         max_norm=None,
