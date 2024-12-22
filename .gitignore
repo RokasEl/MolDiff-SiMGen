@@ -18,4 +18,4 @@ screen_configs_inverse_summation/
 results_inverse_summation/
 *.pdb
 *.traj
-
+*.npy
