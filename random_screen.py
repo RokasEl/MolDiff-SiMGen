@@ -13,11 +13,11 @@ os.makedirs(output_dir, exist_ok=True)
 seed = int(sys.argv[3]) if len(sys.argv) > 3 else 42
 rng = np.random.default_rng(seed)
 
-low = 5e-2
-high = 5e-1
+low = 0.0
+high = 0.4
 
-abs_low = 0.1
-abs_high = 1.
+abs_low = 0.0
+abs_high = 0.4
 
 # Determine starting index based on mode
 if mode == "a":
@@ -38,21 +38,22 @@ else:
 for i in range(start_idx, start_idx + num_configs):
     # Sample guidance_strength in log scale
     scale_mode = rng.choice(["fractional", "absolute"])
-    if scale_mode == "fractional":
-        guidance_strength = low * (high / low) ** rng.uniform(0, 1)
-    elif scale_mode == "absolute":
-        guidance_strength = abs_low * (abs_high / abs_low) ** rng.uniform(0, 1)
+    guidance_strength = rng.uniform(low, high)
+    # if scale_mode == "fractional":
+    #     guidance_strength = low * (high / low) ** rng.uniform(0, 1)
+    # elif scale_mode == "absolute":
+    #     guidance_strength = abs_low * (abs_high / abs_low) ** rng.uniform(0, 1)
 
     # Sample bond_guidance_strength
     bond_guidance_strength = 0 if rng.random() < 0.5 else 1e-4
-    default_sigma = float(rng.uniform(0.05, 0.8))
+    default_sigma = float(rng.uniform(0.5, 1.5))
     config = {
         "guidance_strength": float(guidance_strength),
         "scale_mode": str(scale_mode),
         "default_sigma": default_sigma,
         "element_sigmas": {
-            7: rng.uniform(0.1,1)*default_sigma,
-            16: rng.uniform(0.1,1)*default_sigma,
+            7: rng.uniform(0.75,1.25)*default_sigma,
+            16: rng.uniform(0.75,1.25)*default_sigma,
         },
         "bond_guidance_strength": bond_guidance_strength,
         "num_mols": 1280,

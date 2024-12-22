@@ -114,7 +114,7 @@ if __name__ == '__main__':
         'local_3d',  # bond length, bond angle, dihedral angle
         
         'validity',  # validity, connectivity
-        'similarity', # sim_with_train, uniqueness, diversity
+        #'similarity', # sim_with_train, uniqueness, diversity
 
         'ring_type', # cnt_ring_type_{x}, top_n_freq_ring_type
     ]

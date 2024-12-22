@@ -128,7 +128,7 @@ def main(config_path: str):
     for atoms in conformers:
         atoms.calc = calc
         dyn = LBFGS(atoms)
-        dyn.run(fmax=0.5)
+        dyn.run(fmax=0.1)
         atoms.calc = None
     core_atom_mask = np.zeros(len(conformers[0]), dtype=bool)
     core_atom_mask[core_ids] = True
@@ -215,4 +215,3 @@ def main(config_path: str):
 
 if __name__ == "__main__":
     app()
-    # main("./test_config.yaml")
