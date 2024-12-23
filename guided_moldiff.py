@@ -1,24 +1,29 @@
+import logging
+import pathlib
+from dataclasses import dataclass
+from typing import Mapping
+
+import ase
+import ase.io as aio
+import numpy as np
 import torch
 import typer
-import numpy as np
-import ase
-import pandas as pd
-import logging
-import ase.io as aio
-import pathlib
+import yaml
+from mace.calculators import mace_off
 from rdkit import Chem
 from rdkit.Chem import rdDistGeom
-from dataclasses import dataclass
-import yaml
-
 from simgen.calculators import MaceSimilarityCalculator
 from simgen.utils import setup_logger
-from mace.calculators import mace_off
 
-from models.guided_model import GuidedMolDiff, ScaleMode
 from models.bond_predictor import BondPredictor
-from ase.optimize import LBFGS
-from utils.reconstruct import reconstruct_from_generated_with_edges, MolReconsError
+from models.guided_model import (
+    GuidedMolDiff,
+    ScaleMode,
+    NoiseSchedule,
+    ImportanceSamplingConfig,
+    SiMGenGuidanceParams,
+)
+from utils.reconstruct import MolReconsError, reconstruct_from_generated_with_edges
 from utils.sample import seperate_outputs
 from utils.transforms import FeaturizeMol, make_data_placeholder
 
@@ -28,15 +33,52 @@ app = typer.Typer(pretty_exceptions_show_locals=False)
 @dataclass
 class Config:
     experiment_name: str
-    guidance_strength: float
-    default_sigma: float
-    num_mols: int
     batch_size: int
-    element_sigmas: dict[int, float] | None = None
-    bond_guidance_strength: float = 0
-    num_replicas: int = 1
+    num_mols: int
     max_size: int = 20
+
+    guidance_strength: float = 0.2
+    min_gui_scale: float = 0.0  # 0 = no minimum, only used in FRACTIONAL mode
     scale_mode: ScaleMode = ScaleMode.FRACTIONAL
+    bond_guidance_strength: float = 0
+
+    default_sigma: float = 1.0
+    element_sigmas: dict[int, float] | None = None
+    # matching essentially reduces temperature as generation progresses for importance sampling
+    sigma_schedule: NoiseSchedule = NoiseSchedule.MATCHING
+    constant_sigma_value: float = 1.0  # only used in CONSTANT mode
+
+    importance_sampling_freq: int = 50
+    inverse_temperature: float = 1e-3
+    mini_batch: int = 8
+
+    @classmethod
+    def from_yaml(cls, path: str | pathlib.Path):
+        with open(path, "r") as f:
+            cfg = yaml.safe_load(f)
+        cfg["scale_mode"] = ScaleMode(cfg["scale_mode"])
+        cfg["sigma_schedule"] = NoiseSchedule(cfg["sigma_schedule"])
+        return cls(**cfg)
+
+    def get_importance_sampling_config(self) -> ImportanceSamplingConfig:
+        return ImportanceSamplingConfig(
+            frequency=self.importance_sampling_freq,
+            inverse_temp=self.inverse_temperature,
+            mini_batch=self.mini_batch,
+        )
+
+    def get_simgen_guidance_params(
+        self, simgen_calc: MaceSimilarityCalculator, element_mapping: Mapping
+    ) -> SiMGenGuidanceParams:
+        return SiMGenGuidanceParams(
+            sim_calc=simgen_calc,
+            node_to_element_map=element_mapping,
+            simgen_scale_mode=self.scale_mode,
+            simgen_gui_scale=self.guidance_strength,
+            min_gui_scale=self.min_gui_scale,
+            sigma_schedule_type=self.sigma_schedule,
+            constant_sigma_value=self.constant_sigma_value,
+        )
 
 
 def load_molecule_from_smiles(smiles, removeHs=True):
@@ -76,12 +118,15 @@ def traj_to_ase(out, featurizer, idx: int | None = None):
 
 @app.command()
 def main(config_path: str):
-    with open(config_path, "r") as f:
-        cfg = yaml.safe_load(f)
-    config = Config(**cfg)
-    config.scale_mode = ScaleMode(config.scale_mode)
-    setup_logger(tag="guided_moldiff", level=logging.INFO, directory="./logs")
-    results_path = pathlib.Path(f"./results_inverse_summation/{config.experiment_name}/")
+    config = Config.from_yaml(config_path)
+    setup_logger(
+        tag=f"guided_moldiff_{config.experiment_name}",
+        level=logging.INFO,
+        directory="./logs",
+    )
+    results_path = pathlib.Path(
+        f"./results_inverse_summation/{config.experiment_name}/"
+    )
     results_path.mkdir(parents=True, exist_ok=True)
 
     ref_atoms = aio.read("./penicillin_analogues.xyz", index=":")
@@ -141,6 +186,15 @@ def main(config_path: str):
         element_sigma_array=element_sigma_array,
     )
 
+    if config.guidance_strength > 0.0:
+        simgen_guidance = config.get_simgen_guidance_params(
+            sim_calc, featurizer.nodetype_to_ele
+        )
+        importance_sampling_config = config.get_importance_sampling_config()
+    else:
+        simgen_guidance = None
+        importance_sampling_config = None
+
     pool = {"failed": [], "finished": [], "last_frames": []}
     while len(pool["finished"]) < config.num_mols:
         if len(pool["failed"]) > 256:
@@ -158,11 +212,8 @@ def main(config_path: str):
             batch_halfedge=batch_holder["batch_halfedge"],
             bond_predictor=bond_predictor,
             bond_gui_scale=config.bond_guidance_strength,
-            featurizer=featurizer,
-            simgen_calc=sim_calc,
-            simgen_gui_scale=config.guidance_strength,
-            simgen_scale_mode=config.scale_mode,
-            num_replicas=config.num_replicas,
+            simgen_guidance=simgen_guidance,
+            importance_sampling_params=importance_sampling_config,
         )
         outputs = {
             key: [v.cpu().numpy() for v in value] for key, value in outputs.items()
@@ -203,6 +254,7 @@ def main(config_path: str):
                 rdmol = mol_info["rdmol"]
                 Chem.MolToMolFile(rdmol, str(sdf_dir / f"{current_index}.sdf"))
     torch.save(pool, results_path / "samples_all.pt")
+
 
 if __name__ == "__main__":
     app()
