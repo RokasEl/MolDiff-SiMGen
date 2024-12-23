@@ -120,6 +120,7 @@ def _simgen_guidance_inverse_sum_order(
         embeddings = simgen_calc._get_node_embeddings(simgen_batch)
         
         squared_distance_matrix = simgen_calc._calculate_distance_matrix(embeddings, simgen_batch.node_attrs)
+        noise_level = 1.
         additional_multiplier = 119 * (1 - (noise_level / 10) ** 0.25) + 1 if noise_level <= 10 else 1
         squared_distance_matrix = squared_distance_matrix * additional_multiplier # (N_config_atoms, N_ref_atoms)
         log_dens = scatter_logsumexp(-squared_distance_matrix / 2, batch_idx_sum, dim=0) # (N_graphs, N_ref_atoms)

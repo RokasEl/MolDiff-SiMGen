@@ -84,14 +84,13 @@ def main(config_path: str):
     results_path = pathlib.Path(f"./results_inverse_summation/{config.experiment_name}/")
     results_path.mkdir(parents=True, exist_ok=True)
 
-    df = pd.read_csv("./fda_approved_drugs.txt", sep="\t")
-    df = df.query("~smiles.isna()")
-    penicillin_smiles = df.query("generic_name == 'Penicillin G'")["smiles"].values[0]
-    penicillin_mol = load_molecule_from_smiles(penicillin_smiles, removeHs=False)
-    patt = Chem.MolFromSmarts("O=C1CC2N1CCS2")
-    core_ids = np.asarray(penicillin_mol.GetSubstructMatch(patt)).flatten()
-    pdb_traj = aio.read("penicillin_trajectory.pdb", index=":")
-    conformers = pdb_traj[::100]
+    ref_atoms = aio.read("./penicillin_analogues.xyz", index=":")
+    core_atoms = np.load("./penicillin_core_ids.npy")
+    core_masks = []
+    for atoms, mask in zip(ref_atoms, core_atoms, strict=True):
+        core_mask = np.zeros(len(atoms), dtype=bool)
+        core_mask[mask] = True
+        core_masks.append(core_mask)
 
     ckpt = torch.load("./ckpt/MolDiff.pt", map_location="cuda")
     train_config = ckpt["config"]
@@ -124,14 +123,6 @@ def main(config_path: str):
 
     calc = mace_off("medium", device="cuda", default_dtype="float32")
     z_table = calc.z_table
-    
-    for atoms in conformers:
-        atoms.calc = calc
-        dyn = LBFGS(atoms)
-        dyn.run(fmax=0.1)
-        atoms.calc = None
-    core_atom_mask = np.zeros(len(conformers[0]), dtype=bool)
-    core_atom_mask[core_ids] = True
 
     element_sigma_array = (
         np.ones_like(z_table.zs, dtype=np.float32) * config.default_sigma
@@ -142,8 +133,8 @@ def main(config_path: str):
 
     sim_calc = MaceSimilarityCalculator(
         calc.models[0],
-        reference_data=conformers,
-        ref_data_mask=[core_atom_mask]*len(conformers),
+        reference_data=ref_atoms,
+        ref_data_mask=core_masks,
         device="cuda",
         alpha=0,
         max_norm=None,

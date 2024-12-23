@@ -1,10 +1,10 @@
-batch_size: 4
-default_sigma: 1.2
-element_sigmas:
-  7: 1.2
-  16: 1.2
+batch_size: 32
+default_sigma: 1.
+# element_sigmas:
+#   7: 1.2
+#   16: 1.2
 experiment_name: test
-guidance_strength: 0.20
+guidance_strength: 0.25
 bond_guidance_strength: 0.0000
 num_mols: 8
 num_replicas: 1
