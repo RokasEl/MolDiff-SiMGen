@@ -316,6 +316,7 @@ class GuidedMolDiff(MolDiff):
                 )
 
             pos_delta = 0.0
+            log_dens = None
             if simgen_guidance_params is not None:
                 scale_mode = simgen_guidance_params.simgen_scale_mode
                 sim_gui_scale = simgen_guidance_params.simgen_gui_scale
@@ -347,7 +348,9 @@ class GuidedMolDiff(MolDiff):
                     raise ValueError(
                         f"Invalid noise schedule: {simgen_guidance_params.sigma_schedule_type}"
                     )
-                if not isinstance(simgen_guidance_params.guidance_mode, SiMGenGuidanceMode):
+                if not isinstance(
+                    simgen_guidance_params.guidance_mode, SiMGenGuidanceMode
+                ):
                     raise ValueError(
                         f"Invalid guidance mode: {simgen_guidance_params.guidance_mode}"
                     )
@@ -361,14 +364,6 @@ class GuidedMolDiff(MolDiff):
                     noise_level=noise_level,
                     guidance_mode=simgen_guidance_params.guidance_mode,
                 )
-                if importance_sampling_params is not None:
-                    state, simgen_delta = self._importance_sampling(
-                        state=state,
-                        log_density=log_dens,
-                        simgen_forces=simgen_delta,
-                        step=i,
-                        cfg=importance_sampling_params,
-                    )
                 pos_delta += simgen_delta
 
             # Bond guidance
@@ -395,6 +390,18 @@ class GuidedMolDiff(MolDiff):
             state.h_node = h_node_prev
             state.h_halfedge = h_halfedge_prev
 
+            if importance_sampling_params is not None:
+                if log_dens is None:
+                    raise ValueError(
+                        "Importance sampling requires log densities. Have you set up SiMGen guidance?"
+                    )
+                state = self._importance_sampling(
+                    state=state,
+                    log_density=log_dens,
+                    step=i,
+                    cfg=importance_sampling_params,
+                )
+
             node_traj[i + 1] = state.h_node
             pos_traj[i + 1] = state.pos
             halfedge_traj[i + 1] = state.h_halfedge
@@ -409,17 +416,16 @@ class GuidedMolDiff(MolDiff):
     def _importance_sampling(
         state: GenerationState,
         log_density: torch.Tensor,
-        simgen_forces: torch.Tensor,
         step: int,
         cfg: ImportanceSamplingConfig,
-    ) -> tuple[GenerationState, torch.Tensor]:
+    ) -> GenerationState:
         """
         Performs importance sampling on the generation state if the step matches the
         specified sampling frequency, otherwise returns the original state unmodified.
         """
         # Only do importance sampling if step > 0 and we hit the specified frequency
         if step <= 0 or (step % cfg.frequency != 0):
-            return state, simgen_forces
+            return state
 
         logging.debug(f"Importance sampling at step {step}:")
 
@@ -455,7 +461,6 @@ class GuidedMolDiff(MolDiff):
         )
 
         pos = state.pos[selected_nodes]
-        simgen_forces = simgen_forces[selected_nodes]
         h_node = state.h_node[selected_nodes]
         h_halfedge = state.h_halfedge[selected_halfedges]
 
@@ -486,17 +491,14 @@ class GuidedMolDiff(MolDiff):
             pos.device
         )
 
-        return (
-            GenerationState(
-                pos=pos,
-                h_node=h_node,
-                h_halfedge=h_halfedge,
-                batch_node=batch_node,
-                batch_halfedge=batch_halfedge,
-                batch_edge=batch_edge,
-                halfedge_index=halfedge_index,
-                edge_index=edge_index,
-                n_graphs=state.n_graphs,
-            ),
-            simgen_forces,
+        return GenerationState(
+            pos=pos,
+            h_node=h_node,
+            h_halfedge=h_halfedge,
+            batch_node=batch_node,
+            batch_halfedge=batch_halfedge,
+            batch_edge=batch_edge,
+            halfedge_index=halfedge_index,
+            edge_index=edge_index,
+            n_graphs=state.n_graphs,
         )

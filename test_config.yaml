@@ -1,11 +1,11 @@
 experiment_name: test
 batch_size: 16
-num_mols: 8
+num_mols: 32
 max_size: 20
 
-guidance_mode: direct
-guidance_strength: 0.3316635319256157
-min_gui_scale: 0.08585979199113825
+guidance_mode: inverse
+guidance_strength: 0.3
+min_gui_scale: 0.125
 scale_mode: fractional
 bond_guidance_strength: 0.0
 
@@ -18,6 +18,6 @@ sigma_schedule: constant
 constant_sigma_value: 1.546052043589046
 
 # IS parameters
-importance_sampling_freq: 25
-inverse_temperature: 0.009780601164730805
-mini_batch: 8
+importance_sampling_freq: 100
+inverse_temperature: 0.005
+mini_batch: 4

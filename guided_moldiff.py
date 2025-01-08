@@ -17,10 +17,10 @@ from simgen.utils import setup_logger
 from models.bond_predictor import BondPredictor
 from models.guided_model import (
     GuidedMolDiff,
-    SiMGenGuidanceMode,
-    ScaleMode,
-    NoiseSchedule,
     ImportanceSamplingConfig,
+    NoiseSchedule,
+    ScaleMode,
+    SiMGenGuidanceMode,
     SiMGenGuidanceParams,
 )
 from utils.reconstruct import MolReconsError, reconstruct_from_generated_with_edges
@@ -105,6 +105,7 @@ def traj_to_ase(out, featurizer, idx: int | None = None):
         traj.append(atoms)
     return traj
 
+
 def load_mace_and_simgen_if_needed(config: Config, featurizer: FeaturizeMol):
     """Load MACE models and ASE data only if guidance_strength>0 or importance_sampling_freq>0."""
     if config.guidance_strength <= 0 and config.importance_sampling_freq <= 0:
@@ -144,6 +145,7 @@ def load_mace_and_simgen_if_needed(config: Config, featurizer: FeaturizeMol):
     importance_sampling_config = config.get_importance_sampling_config()
     return sim_calc, simgen_guidance_params, importance_sampling_config
 
+
 @app.command()
 def main(config_path: str):
     config = Config.from_yaml(config_path)
@@ -152,9 +154,7 @@ def main(config_path: str):
         level=logging.INFO,
         directory="./logs",
     )
-    results_path = pathlib.Path(
-        f"./results_production/{config.experiment_name}/"
-    )
+    results_path = pathlib.Path(f"./results_production/{config.experiment_name}/")
     results_path.mkdir(parents=True, exist_ok=True)
 
     ckpt = torch.load("./ckpt/MolDiff.pt", map_location="cuda")
@@ -186,16 +186,20 @@ def main(config_path: str):
     else:
         bond_predictor = None
 
-    sim_calc, simgen_guidance_params, importance_sampling_config = load_mace_and_simgen_if_needed(
-        config, featurizer
+    sim_calc, simgen_guidance_params, importance_sampling_config = (
+        load_mace_and_simgen_if_needed(config, featurizer)
     )
 
-    logging.info(f"Experiment name: {config.experiment_name}. Initialized with configs:")
+    logging.info(
+        f"Experiment name: {config.experiment_name}. Initialized with configs:"
+    )
     if sim_calc is not None:
         logging.info(f"SiMGen guidance params: {simgen_guidance_params}")
         logging.info(f"Importance sampling config: {importance_sampling_config}")
     else:
-        logging.info("Skipping MACE/ASE loading (guidance_strength <= 0 and importance_sampling_freq <= 0).")
+        logging.info(
+            "Skipping MACE/ASE loading (guidance_strength <= 0 and importance_sampling_freq <= 0)."
+        )
 
     pool = {"failed": [], "finished": [], "last_frames": []}
     while len(pool["finished"]) < config.num_mols:

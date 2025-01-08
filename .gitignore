@@ -21,3 +21,4 @@ results_inverse_summation/
 *.traj
 *.npy
 results_production/
+.vscode/
