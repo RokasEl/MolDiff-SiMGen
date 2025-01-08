@@ -10,6 +10,7 @@ import ase.io as aio
 from ase.optimize import FIRE
 import pandas as pd
 from simgen.calculators import MaceSimilarityCalculator
+import torch
 from torch_scatter import scatter_logsumexp
 
 
@@ -24,40 +25,28 @@ def rdkit_mol_2_ase(mol):
 def main(results_root:str, exp_name:str|None=None, ):
     # Load MACE model
     calc = mace_off("medium", device="cuda", default_dtype="float32")
-
-    # Load penicillin data for ref set
-    df = pd.read_csv("./fda_approved_drugs.txt", sep="\t")
-    df = df.query("~smiles.isna()")
-    penicillin_smiles = df.query("generic_name == 'Penicillin G'")["smiles"].values[0]
-    penicillin_mol = Chem.MolFromSmiles(penicillin_smiles)
-    penicillin_mol = Chem.AddHs(penicillin_mol)
-    pdb_traj = aio.read("penicillin_trajectory.pdb", index=":")
-    conformers = pdb_traj[::100]
-
-    # Collect short MD trajectory to get multiple conformations
-    for atoms in conformers:
-        atoms.calc = calc
-        dyn = FIRE(atoms)
-        dyn.run(fmax=0.1)
-        atoms.calc = None
-
-    # define core ids
-    patt = Chem.MolFromSmarts("O=C1CC2N1CCS2")
-    core_ids = np.asarray(penicillin_mol.GetSubstructMatch(patt)).flatten()
     z_table = calc.z_table
-    atoms = conformers[0]
-    core_atom_mask = np.zeros(len(atoms), dtype=bool)
-    core_atom_mask[core_ids] = True
+    
+    ref_atoms = aio.read("./penicillin_analogues.xyz", index=":")
+    core_atoms = np.load("./penicillin_core_ids.npy")
+    core_masks = []
+    for atoms, mask in zip(ref_atoms, core_atoms, strict=True):
+        core_mask = np.zeros(len(atoms), dtype=bool)
+        core_mask[mask] = True
+        core_masks.append(core_mask)
 
     # Create similarity calculator
-    element_sigma_array = np.ones_like(z_table.zs) * 1
+    element_sigma_array = (
+        np.ones_like(z_table.zs, dtype=np.float32) * 1.
+    )
     sim_calc = MaceSimilarityCalculator(
-        model=calc.models[0],
-        reference_data=conformers,
-        ref_data_mask=[core_atom_mask] * len(conformers),
-        element_sigma_array=element_sigma_array,
-        max_norm=None,
+        calc.models[0],
+        reference_data=ref_atoms,
+        ref_data_mask=core_masks,
         device="cuda",
+        alpha=0,
+        max_norm=None,
+        element_sigma_array=element_sigma_array,
     )
 
     # Process all experiments in the results folder
@@ -75,11 +64,13 @@ def main(results_root:str, exp_name:str|None=None, ):
         sdf_path = exp_folder / "SDF"
         sdf_files = list(sdf_path.glob("*.sdf"))
         mols = []
+        order = []
         for sdf_file in sdf_files:
+            order.append(int(sdf_file.stem.split("_")[-1]))
             suppl = Chem.SDMolSupplier(str(sdf_file))
             for mol in suppl:
                 mols.append(mol)
-
+        mols = [mols[i] for i in np.argsort(order)]
         generated_densities = np.full(len(mols), np.nan)
         batch_size = 128
         noise_level = 1.0
@@ -98,28 +89,29 @@ def main(results_root:str, exp_name:str|None=None, ):
             ]
 
             if valid_atoms_batch:
-                batch = sim_calc.batch_atoms(valid_atoms_batch)
-                embeddings = sim_calc._get_node_embeddings(batch)
-                squared_distance_matrix = sim_calc._calculate_distance_matrix(
-                    embeddings, batch.node_attrs
-                )
-                additional_multiplier = (
-                    119 * (1 - (noise_level / 10) ** 0.25) + 1
-                    if noise_level <= 10
-                    else 1
-                )
-                squared_distance_matrix = (
-                    squared_distance_matrix * additional_multiplier
-                )
-                log_dens = scatter_logsumexp(
-                    -squared_distance_matrix / 2, batch.batch, dim=0
-                )
-                log_dens = log_dens.sum(dim=-1)
+                with torch.no_grad():
+                    batch = sim_calc.batch_atoms(valid_atoms_batch)
+                    embeddings = sim_calc._get_node_embeddings(batch)
+                    squared_distance_matrix = sim_calc._calculate_distance_matrix(
+                        embeddings, batch.node_attrs
+                    )
+                    additional_multiplier = (
+                        119 * (1 - (noise_level / 10) ** 0.25) + 1
+                        if noise_level <= 10
+                        else 1
+                    )
+                    squared_distance_matrix = (
+                        squared_distance_matrix * additional_multiplier
+                    )
+                    log_dens = scatter_logsumexp(
+                        -squared_distance_matrix / 2, batch.batch, dim=0
+                    )
+                    log_dens = log_dens.sum(dim=-1)
 
-                # Assign densities back to the correct indices
-                generated_densities[np.array(valid_indices) + start_idx] = (
-                    log_dens.detach().cpu().numpy()
-                )
+                    # Assign densities back to the correct indices
+                    generated_densities[np.array(valid_indices) + start_idx] = (
+                        log_dens.detach().cpu().numpy()
+                    )
 
         # Print or save the densities for the current experiment
         print(f"Experiment: {exp_folder.name}")

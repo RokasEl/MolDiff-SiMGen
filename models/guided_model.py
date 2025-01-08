@@ -25,10 +25,16 @@ class NoiseSchedule(enum.Enum):
     MATCHING = "matching"
 
 
+class SiMGenGuidanceMode(enum.Enum):
+    DIRECT_SUM = "direct"
+    INVERSE_SUM = "inverse"
+
+
 @dataclass
 class SiMGenGuidanceParams:
     sim_calc: MaceSimilarityCalculator
     node_to_element_map: Mapping[float | int, int]
+    guidance_mode: SiMGenGuidanceMode = SiMGenGuidanceMode.DIRECT_SUM
     simgen_scale_mode: ScaleMode = ScaleMode.FRACTIONAL
     simgen_gui_scale: float = 0.2
     min_gui_scale: float = 0.05
@@ -93,77 +99,97 @@ def prepare_atoms(
     return atoms
 
 
-def _simgen_guidance(
+def _prepare_simgen_batch(
     simgen_calc: MaceSimilarityCalculator,
-    node_to_element_map: Mapping[int | float, int],
     logits: torch.Tensor,
     pos_prev: torch.Tensor,
     batch_idx: torch.Tensor,
-    gui_scale: float | torch.Tensor,
-    noise_level: float,
+    node_to_element_map: Mapping[int | float, int],
+):
+    atoms = prepare_atoms(logits, pos_prev, batch_idx, node_to_element_map)
+    simgen_batch = simgen_calc.batch_atoms(atoms)
+    embeddings = simgen_calc._get_node_embeddings(simgen_batch)
+    return simgen_batch, embeddings
+
+
+def _scale_forces(
+    simgen_force: torch.Tensor, gui_scale: float | torch.Tensor, batch_idx: torch.Tensor
 ) -> torch.Tensor:
-    with torch.enable_grad():
-        assert simgen_calc is not None, "simgen_calc required"
-        atoms = prepare_atoms(logits, pos_prev, batch_idx, node_to_element_map)
-        simgen_batch = simgen_calc.batch_atoms(atoms)
-        embeddings = simgen_calc._get_node_embeddings(simgen_batch)
+    force_norms = simgen_force.norm(dim=-1)
+    force_norms = scatter_max(force_norms, batch_idx, dim=0)[0][batch_idx]
+    mult = torch.where(
+        force_norms > gui_scale, gui_scale / force_norms, torch.ones_like(force_norms)
+    )
+    return simgen_force * mult[:, None]
+
+
+def _compute_log_dens(
+    simgen_calc,
+    embeddings: torch.Tensor,
+    simgen_batch,
+    batch_idx: torch.Tensor,
+    noise_level: float,
+    inverse_sum: bool,
+) -> torch.Tensor:
+    """Compute log densities for direct or inverse sum modes."""
+    if not inverse_sum:
         log_dens = simgen_calc._calculate_log_k(
             embeddings, simgen_batch.node_attrs, noise_level
         )
-        log_dens = scatter_sum(log_dens, batch_idx, dim=0)
-        simgen_force = simgen_calc._get_gradient(simgen_batch.positions, log_dens)
-
-        force_norms = (simgen_force**2).sum(dim=-1).sqrt()
-        force_norms = scatter_max(force_norms, batch_idx, dim=0)[0][batch_idx]
-
-        mult = torch.where(
-            force_norms > gui_scale,
-            gui_scale / force_norms,
-            torch.ones_like(force_norms),
-        )
-        delta = simgen_force * mult[:, None]
-    return delta
-
-
-def _simgen_guidance_inverse_sum_order(
-    simgen_calc: MaceSimilarityCalculator,
-    node_to_element_map: Mapping[int | float, int],
-    logits: torch.Tensor,
-    pos_prev: torch.Tensor,
-    batch_idx: torch.Tensor,
-    gui_scale: float | torch.Tensor,
-    noise_level: float,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    with torch.enable_grad():
-        assert simgen_calc is not None, "simgen_calc required"
-        atoms = prepare_atoms(logits, pos_prev, batch_idx, node_to_element_map)
-        simgen_batch = simgen_calc.batch_atoms(atoms)
-        embeddings = simgen_calc._get_node_embeddings(simgen_batch)
-
+        return scatter_sum(log_dens, batch_idx, dim=0)
+    else:
         squared_distance_matrix = simgen_calc._calculate_distance_matrix(
             embeddings, simgen_batch.node_attrs
         )
         additional_multiplier = (
             119 * (1 - (noise_level / 10) ** 0.25) + 1 if noise_level <= 10 else 1
         )
-        squared_distance_matrix = (
-            squared_distance_matrix * additional_multiplier
-        )  # (N_config_atoms, N_ref_atoms)
-        log_dens = scatter_logsumexp(
-            -squared_distance_matrix / 2, batch_idx, dim=0
-        )  # (N_graphs, N_ref_atoms)
-        log_dens = log_dens.sum(dim=-1)  # (N_graphs,)
-        simgen_force = simgen_calc._get_gradient(simgen_batch.positions, log_dens)
-
-        force_norms = (simgen_force**2).sum(dim=-1).sqrt()
-        force_norms = scatter_max(force_norms, batch_idx, dim=0)[0][batch_idx]
-
-        mult = torch.where(
-            force_norms > gui_scale,
-            gui_scale / force_norms,
-            torch.ones_like(force_norms),
+        squared_distance_matrix *= additional_multiplier
+        return scatter_logsumexp(-squared_distance_matrix / 2, batch_idx, dim=0).sum(
+            dim=-1
         )
-        delta = simgen_force * mult[:, None]
+
+
+def _simgen_guidance(
+    simgen_calc,
+    node_to_element_map,
+    logits: torch.Tensor,
+    pos_prev: torch.Tensor,
+    batch_idx: torch.Tensor,
+    gui_scale: float,
+    noise_level: float,
+    guidance_mode: SiMGenGuidanceMode,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Handles both direct sum and inverse sum guidance modes.
+    If gui_scale <= 0, returns zero delta and log_dens with no grads.
+    """
+    inverse_sum = guidance_mode == SiMGenGuidanceMode.INVERSE_SUM
+
+    if gui_scale <= 0:
+        with torch.no_grad():
+            simgen_batch, embeddings = _prepare_simgen_batch(
+                simgen_calc, logits, pos_prev, batch_idx, node_to_element_map
+            )
+            log_dens = _compute_log_dens(
+                simgen_calc,
+                embeddings,
+                simgen_batch,
+                batch_idx,
+                noise_level,
+                inverse_sum,
+            )
+        return torch.zeros_like(pos_prev), log_dens
+
+    with torch.enable_grad():
+        simgen_batch, embeddings = _prepare_simgen_batch(
+            simgen_calc, logits, pos_prev, batch_idx, node_to_element_map
+        )
+        log_dens = _compute_log_dens(
+            simgen_calc, embeddings, simgen_batch, batch_idx, noise_level, inverse_sum
+        )
+        simgen_force = simgen_calc._get_gradient(simgen_batch.positions, log_dens)
+        delta = _scale_forces(simgen_force, gui_scale, batch_idx)
     return delta, log_dens
 
 
@@ -177,7 +203,7 @@ class GuidedMolDiff(MolDiff):
         batch_halfedge: torch.Tensor,
         bond_predictor: None | nn.Module = None,
         bond_gui_scale: float = 0.0,
-        simgen_guidance: SiMGenGuidanceParams | None = None,
+        simgen_guidance_params: SiMGenGuidanceParams | None = None,
         importance_sampling_params: ImportanceSamplingConfig | None = None,
     ) -> dict[str, list[torch.Tensor]]:
         device = batch_node.device
@@ -290,38 +316,50 @@ class GuidedMolDiff(MolDiff):
                 )
 
             pos_delta = 0.0
-            if simgen_guidance is not None and simgen_guidance.simgen_gui_scale > 0.0:
-                scale_mode = simgen_guidance.simgen_scale_mode
-                sim_gui_scale = simgen_guidance.simgen_gui_scale
+            if simgen_guidance_params is not None:
+                scale_mode = simgen_guidance_params.simgen_scale_mode
+                sim_gui_scale = simgen_guidance_params.simgen_gui_scale
                 if scale_mode == ScaleMode.FRACTIONAL:
                     avg_moldiff_force = (
                         torch.norm(pos_prev - state.pos, dim=-1).mean().item()
                     )
                     gui_scale = max(
-                        avg_moldiff_force * sim_gui_scale, simgen_guidance.min_gui_scale
+                        avg_moldiff_force * sim_gui_scale,
+                        simgen_guidance_params.min_gui_scale,
                     )
                 elif scale_mode == ScaleMode.ABSOLUTE:
                     gui_scale = sim_gui_scale
                 else:
                     raise ValueError(f"Invalid scale mode: {scale_mode}")
 
-                if simgen_guidance.sigma_schedule_type == NoiseSchedule.CONSTANT:
-                    noise_level = simgen_guidance.constant_sigma_value
-                elif simgen_guidance.sigma_schedule_type == NoiseSchedule.MATCHING:
-                    noise_level = step / self.num_timesteps + 1e-3
+                if simgen_guidance_params.sigma_schedule_type == NoiseSchedule.CONSTANT:
+                    noise_level = simgen_guidance_params.constant_sigma_value
+                elif (
+                    simgen_guidance_params.sigma_schedule_type == NoiseSchedule.MATCHING
+                ):
+                    noise_level = (
+                        simgen_guidance_params.constant_sigma_value
+                        * step
+                        / self.num_timesteps
+                        + 1e-3
+                    )
                 else:
                     raise ValueError(
-                        f"Invalid noise schedule: {simgen_guidance.sigma_schedule_type}"
+                        f"Invalid noise schedule: {simgen_guidance_params.sigma_schedule_type}"
                     )
-
-                simgen_delta, log_dens = _simgen_guidance_inverse_sum_order(
-                    simgen_guidance.sim_calc,
-                    simgen_guidance.node_to_element_map,
+                if not isinstance(simgen_guidance_params.guidance_mode, SiMGenGuidanceMode):
+                    raise ValueError(
+                        f"Invalid guidance mode: {simgen_guidance_params.guidance_mode}"
+                    )
+                simgen_delta, log_dens = _simgen_guidance(
+                    simgen_guidance_params.sim_calc,
+                    simgen_guidance_params.node_to_element_map,
                     pred_node[:, :-1],  # ignore the absorbing node type
-                    state.pos,  # CHECK: pos_prev or pred_pos. Pred_pos is look-ahead guidance
+                    state.pos,  # use the previous position
                     state.batch_node,
                     gui_scale,
                     noise_level=noise_level,
+                    guidance_mode=simgen_guidance_params.guidance_mode,
                 )
                 if importance_sampling_params is not None:
                     state, simgen_delta = self._importance_sampling(
@@ -383,35 +421,31 @@ class GuidedMolDiff(MolDiff):
         if step <= 0 or (step % cfg.frequency != 0):
             return state, simgen_forces
 
-        logging.info(f"Importance sampling at step {step}")
-        logging.info(f"Log densities: {log_density}")
+        logging.debug(f"Importance sampling at step {step}:")
 
         # If mini-batch > 1, treat log densities in grouped fashion
         if cfg.mini_batch > 1:
             assert state.n_graphs % cfg.mini_batch == 0
             log_dens_mini = log_density.view(-1, cfg.mini_batch)
-            weights = F.softmax(
-                log_dens_mini * cfg.inverse_temp, dim=1
-            )
+            weights = F.softmax(log_dens_mini * cfg.inverse_temp, dim=1)
             selected_batches = torch.cat(
                 [
-                    torch.multinomial(
-                        w, cfg.mini_batch, replacement=True
-                    )
+                    torch.multinomial(w, cfg.mini_batch, replacement=True)
                     + grp_i * cfg.mini_batch
                     for grp_i, w in enumerate(weights)
                 ]
             )
         else:
-            weights = F.softmax(
-                log_density * cfg.inverse_temp, dim=0
-            )
+            weights = F.softmax(log_density * cfg.inverse_temp, dim=0)
             selected_batches = torch.multinomial(
                 weights, state.n_graphs, replacement=True
             )
 
-        logging.info(f"Weights: {weights}")
-        logging.info(f"Selected batches: {selected_batches}")
+        logging.debug(
+            f"  Log densities: {log_density}"
+            f"\n  Weights: {weights}"
+            f"\n  Selected batches: {selected_batches}"
+        )
 
         selected_nodes = torch.cat(
             [torch.where(state.batch_node == x)[0] for x in selected_batches]

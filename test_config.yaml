@@ -1,11 +1,23 @@
-batch_size: 32
-default_sigma: 1.
-# element_sigmas:
-#   7: 1.2
-#   16: 1.2
 experiment_name: test
-guidance_strength: 0.25
-bond_guidance_strength: 0.0000
+batch_size: 16
 num_mols: 8
-num_replicas: 1
-scale_mode: absolute
+max_size: 20
+
+guidance_mode: direct
+guidance_strength: 0.3316635319256157
+min_gui_scale: 0.08585979199113825
+scale_mode: fractional
+bond_guidance_strength: 0.0
+
+default_sigma: 1.0 # sigma for all elements, can be overridden by element_sigmas
+element_sigmas:
+  7: 1.3805698509951765
+  16: 1.3930321526384768
+
+sigma_schedule: constant
+constant_sigma_value: 1.546052043589046
+
+# IS parameters
+importance_sampling_freq: 25
+inverse_temperature: 0.009780601164730805
+mini_batch: 8

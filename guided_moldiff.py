@@ -11,13 +11,13 @@ import typer
 import yaml
 from mace.calculators import mace_off
 from rdkit import Chem
-from rdkit.Chem import rdDistGeom
 from simgen.calculators import MaceSimilarityCalculator
 from simgen.utils import setup_logger
 
 from models.bond_predictor import BondPredictor
 from models.guided_model import (
     GuidedMolDiff,
+    SiMGenGuidanceMode,
     ScaleMode,
     NoiseSchedule,
     ImportanceSamplingConfig,
@@ -37,6 +37,7 @@ class Config:
     num_mols: int
     max_size: int = 20
 
+    guidance_mode: SiMGenGuidanceMode = SiMGenGuidanceMode.INVERSE_SUM
     guidance_strength: float = 0.2
     min_gui_scale: float = 0.0  # 0 = no minimum, only used in FRACTIONAL mode
     scale_mode: ScaleMode = ScaleMode.FRACTIONAL
@@ -56,16 +57,20 @@ class Config:
     def from_yaml(cls, path: str | pathlib.Path):
         with open(path, "r") as f:
             cfg = yaml.safe_load(f)
+        cfg["guidance_mode"] = SiMGenGuidanceMode(cfg["guidance_mode"])
         cfg["scale_mode"] = ScaleMode(cfg["scale_mode"])
         cfg["sigma_schedule"] = NoiseSchedule(cfg["sigma_schedule"])
         return cls(**cfg)
 
-    def get_importance_sampling_config(self) -> ImportanceSamplingConfig:
-        return ImportanceSamplingConfig(
-            frequency=self.importance_sampling_freq,
-            inverse_temp=self.inverse_temperature,
-            mini_batch=self.mini_batch,
-        )
+    def get_importance_sampling_config(self) -> ImportanceSamplingConfig | None:
+        if self.importance_sampling_freq > 0:
+            return ImportanceSamplingConfig(
+                frequency=self.importance_sampling_freq,
+                inverse_temp=self.inverse_temperature,
+                mini_batch=self.mini_batch,
+            )
+        else:
+            return None
 
     def get_simgen_guidance_params(
         self, simgen_calc: MaceSimilarityCalculator, element_mapping: Mapping
@@ -73,28 +78,13 @@ class Config:
         return SiMGenGuidanceParams(
             sim_calc=simgen_calc,
             node_to_element_map=element_mapping,
+            guidance_mode=self.guidance_mode,
             simgen_scale_mode=self.scale_mode,
             simgen_gui_scale=self.guidance_strength,
             min_gui_scale=self.min_gui_scale,
             sigma_schedule_type=self.sigma_schedule,
             constant_sigma_value=self.constant_sigma_value,
         )
-
-
-def load_molecule_from_smiles(smiles, removeHs=True):
-    mol = Chem.MolFromSmiles(smiles)
-    mol = Chem.AddHs(mol)
-    embedding_params = rdDistGeom.ETKDGv3()
-    rdDistGeom.EmbedMolecule(mol, embedding_params)
-    if removeHs:
-        mol = Chem.RemoveHs(mol)
-    return mol
-
-
-def mol_to_ase_atoms(mol):
-    symbols = [atom.GetSymbol() for atom in mol.GetAtoms()]
-    positions = mol.GetConformer().GetPositions()
-    return ase.Atoms(symbols, positions)
 
 
 def traj_to_ase(out, featurizer, idx: int | None = None):
@@ -115,6 +105,44 @@ def traj_to_ase(out, featurizer, idx: int | None = None):
         traj.append(atoms)
     return traj
 
+def load_mace_and_simgen_if_needed(config: Config, featurizer: FeaturizeMol):
+    """Load MACE models and ASE data only if guidance_strength>0 or importance_sampling_freq>0."""
+    if config.guidance_strength <= 0 and config.importance_sampling_freq <= 0:
+        return None, None, None
+
+    ref_atoms = aio.read("./penicillin_analogues.xyz", index=":")
+    core_atoms = np.load("./penicillin_core_ids.npy")
+    core_masks = []
+    for atoms, mask in zip(ref_atoms, core_atoms, strict=True):
+        core_mask = np.zeros(len(atoms), dtype=bool)
+        core_mask[mask] = True
+        core_masks.append(core_mask)
+
+    calc = mace_off("medium", device="cuda", default_dtype="float32")
+    z_table = calc.z_table
+
+    element_sigma_array = (
+        np.ones_like(z_table.zs, dtype=np.float32) * config.default_sigma
+    )
+    if config.element_sigmas is not None:
+        for element, sigma in config.element_sigmas.items():
+            element_sigma_array[z_table.z_to_index(element)] = sigma
+
+    sim_calc = MaceSimilarityCalculator(
+        calc.models[0],
+        reference_data=ref_atoms,
+        ref_data_mask=core_masks,
+        device="cuda",
+        alpha=0,
+        max_norm=None,
+        element_sigma_array=element_sigma_array,
+    )
+
+    simgen_guidance_params = config.get_simgen_guidance_params(
+        sim_calc, featurizer.nodetype_to_ele
+    )
+    importance_sampling_config = config.get_importance_sampling_config()
+    return sim_calc, simgen_guidance_params, importance_sampling_config
 
 @app.command()
 def main(config_path: str):
@@ -125,17 +153,9 @@ def main(config_path: str):
         directory="./logs",
     )
     results_path = pathlib.Path(
-        f"./results_inverse_summation/{config.experiment_name}/"
+        f"./results_production/{config.experiment_name}/"
     )
     results_path.mkdir(parents=True, exist_ok=True)
-
-    ref_atoms = aio.read("./penicillin_analogues.xyz", index=":")
-    core_atoms = np.load("./penicillin_core_ids.npy")
-    core_masks = []
-    for atoms, mask in zip(ref_atoms, core_atoms, strict=True):
-        core_mask = np.zeros(len(atoms), dtype=bool)
-        core_mask[mask] = True
-        core_masks.append(core_mask)
 
     ckpt = torch.load("./ckpt/MolDiff.pt", map_location="cuda")
     train_config = ckpt["config"]
@@ -166,34 +186,16 @@ def main(config_path: str):
     else:
         bond_predictor = None
 
-    calc = mace_off("medium", device="cuda", default_dtype="float32")
-    z_table = calc.z_table
-
-    element_sigma_array = (
-        np.ones_like(z_table.zs, dtype=np.float32) * config.default_sigma
-    )
-    if config.element_sigmas is not None:
-        for element, sigma in config.element_sigmas.items():
-            element_sigma_array[z_table.z_to_index(element)] = sigma
-
-    sim_calc = MaceSimilarityCalculator(
-        calc.models[0],
-        reference_data=ref_atoms,
-        ref_data_mask=core_masks,
-        device="cuda",
-        alpha=0,
-        max_norm=None,
-        element_sigma_array=element_sigma_array,
+    sim_calc, simgen_guidance_params, importance_sampling_config = load_mace_and_simgen_if_needed(
+        config, featurizer
     )
 
-    if config.guidance_strength > 0.0:
-        simgen_guidance = config.get_simgen_guidance_params(
-            sim_calc, featurizer.nodetype_to_ele
-        )
-        importance_sampling_config = config.get_importance_sampling_config()
+    logging.info(f"Experiment name: {config.experiment_name}. Initialized with configs:")
+    if sim_calc is not None:
+        logging.info(f"SiMGen guidance params: {simgen_guidance_params}")
+        logging.info(f"Importance sampling config: {importance_sampling_config}")
     else:
-        simgen_guidance = None
-        importance_sampling_config = None
+        logging.info("Skipping MACE/ASE loading (guidance_strength <= 0 and importance_sampling_freq <= 0).")
 
     pool = {"failed": [], "finished": [], "last_frames": []}
     while len(pool["finished"]) < config.num_mols:
@@ -212,7 +214,7 @@ def main(config_path: str):
             batch_halfedge=batch_holder["batch_halfedge"],
             bond_predictor=bond_predictor,
             bond_gui_scale=config.bond_guidance_strength,
-            simgen_guidance=simgen_guidance,
+            simgen_guidance_params=simgen_guidance_params,
             importance_sampling_params=importance_sampling_config,
         )
         outputs = {

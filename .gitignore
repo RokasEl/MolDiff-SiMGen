@@ -12,6 +12,7 @@ logs/
 results/
 data/
 screen_configs/
+production_configs/
 *.log
 launch_*
 screen_configs_inverse_summation/
@@ -19,3 +20,4 @@ results_inverse_summation/
 *.pdb
 *.traj
 *.npy
+results_production/
