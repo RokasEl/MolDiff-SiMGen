@@ -14,13 +14,26 @@ os.makedirs(output_dir, exist_ok=True)
 seed = int(sys.argv[3]) if len(sys.argv) > 3 else 42
 rng = np.random.default_rng(seed)
 
-low = 0.05
-high = 0.2
-min_low = 0.0
-min_high = 0.05
+guidance_mode = "direct"
 
-abs_low = 0.01
-abs_high = 0.12
+if guidance_mode == "inverse":
+    # Inverse guidance screen parameters
+    low = 0.2
+    high = 0.5
+    min_low = 0.1
+    min_high = 0.2
+
+    abs_low = 0.05
+    abs_high = 0.2
+elif guidance_mode == "direct":
+    low = 0.05
+    high = 0.2
+    min_low = 0.0
+    min_high = 0.05
+
+    abs_low = 0.01
+    abs_high = 0.12
+
 
 # Determine starting index based on mode
 if mode == "a":
@@ -39,7 +52,8 @@ else:
     start_idx = 0
 
 for i in range(start_idx, start_idx + num_configs):
-    scale_mode = rng.choice(["fractional", "absolute"])
+    # scale_mode = rng.choice(["fractional", "absolute"])
+    scale_mode = "fractional"
     guidance_strength = (
         rng.uniform(low, high)
         if scale_mode == "fractional"
@@ -54,16 +68,17 @@ for i in range(start_idx, start_idx + num_configs):
     sigma_schedule = "matching"
     constant_sigma_value = rng.uniform(0.5, 2)
 
-    is_frequency = rng.choice([25, 50, 100])
+    is_frequency = [25, 50, 100][i%3]
     inverse_temperature = rng.uniform(1e-3, 1e-2)
-    mini_batch = rng.choice([8, 16])
+    mini_batch = rng.choice([4, 8, 16])
 
     config = {
         "experiment_name": f"exp_{i}",
+        "results_dir": "./results/" if guidance_mode == "direct" else "./results_inverse_summation/",
         "batch_size": 128,
         "num_mols": 512,
         "max_size": 20,
-        "guidance_mode": "direct",  
+        "guidance_mode": guidance_mode,  
         "guidance_strength": float(guidance_strength),
         "min_gui_scale": float(min_gui_strength),
         "scale_mode": str(scale_mode),

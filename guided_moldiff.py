@@ -36,6 +36,8 @@ class Config:
     batch_size: int
     num_mols: int
     max_size: int = 20
+    keep_h_in_ref_atoms: bool = False
+    results_dir:str = "./results/"
 
     guidance_mode: SiMGenGuidanceMode = SiMGenGuidanceMode.INVERSE_SUM
     guidance_strength: float = 0.2
@@ -110,10 +112,14 @@ def load_mace_and_simgen_if_needed(config: Config, featurizer: FeaturizeMol):
     """Load MACE models and ASE data only if guidance_strength>0 or importance_sampling_freq>0."""
     if config.guidance_strength <= 0 and config.importance_sampling_freq <= 0:
         return None, None, None
-
-    ref_atoms = aio.read("./penicillin_analogues.xyz", index=":")
+    
+    ref_atoms: list[ase.Atoms] = aio.read("./penicillin_analogues.xyz", index=":") # type: ignore
     core_atoms = np.load("./penicillin_core_ids.npy")
     core_masks = []
+    if not config.keep_h_in_ref_atoms:
+        logging.info("Removing H atoms from reference atoms.")
+        ref_atoms = [a[a.numbers != 1] for a in ref_atoms] # type: ignore
+        assert all([isinstance(a, ase.Atoms) for a in ref_atoms])
     for atoms, mask in zip(ref_atoms, core_atoms, strict=True):
         core_mask = np.zeros(len(atoms), dtype=bool)
         core_mask[mask] = True
@@ -154,7 +160,7 @@ def main(config_path: str):
         level=logging.INFO,
         directory="./logs",
     )
-    results_path = pathlib.Path(f"./results_production/{config.experiment_name}/")
+    results_path = pathlib.Path(f"{config.results_dir}/{config.experiment_name}/")
     results_path.mkdir(parents=True, exist_ok=True)
 
     ckpt = torch.load("./ckpt/MolDiff.pt", map_location="cuda")

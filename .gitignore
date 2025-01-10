@@ -13,6 +13,7 @@ results/
 data/
 screen_configs/
 production_configs/
+production_configs_low_t/
 *.log
 launch_*
 screen_configs_inverse_summation/
