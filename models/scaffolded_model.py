@@ -2,6 +2,7 @@ from typing import Callable
 import torch
 import torch.nn.functional as F
 from torch_scatter import scatter_max
+from tqdm import tqdm
 
 from .diffusion import log_sample_categorical
 from .model import MolDiff
@@ -17,9 +18,9 @@ class ScaffoldedMolDiff(MolDiff):
         batch_halfedge,
         bond_predictor: None | Callable = None,
         guidance=None,
-        featurizer=None,
-        simgen_calc=None,
         scaffold_positions: torch.Tensor | None = None,
+        scaffold_node_types: torch.Tensor | None = None,
+        readd_noise: bool = False,
     ):
         device = batch_node.device
         # # 1. get the init values (position, node types)
@@ -90,18 +91,22 @@ class ScaffoldedMolDiff(MolDiff):
                 scaffold_batch_node = torch.zeros(
                     len(scaffold_positions), dtype=torch.long
                 ).to(device)
-                scaffold_pert: torch.Tensor = self.pos_transition.add_noise( # type: ignore
-                    scaffold_positions, time_step, scaffold_batch_node
-                )
-                scaffold_pos_pert_repeated = scaffold_pert.repeat(n_graphs, 1)
+                if readd_noise:
+                    scaffold_pert: torch.Tensor = self.pos_transition.add_noise(  # type: ignore
+                        scaffold_positions, time_step, scaffold_batch_node
+                    )
+                    scaffold_repeated = scaffold_pert.repeat(n_graphs, 1)
+                else:
+                    scaffold_repeated = scaffold_positions.repeat(n_graphs, 1)
+                offsets = torch.cumsum(torch.bincount(batch_node), -1)
+                offsets = torch.cat([torch.zeros(1, device=device), offsets])[:-1].long()
                 indices = torch.cat(
                     [
-                        torch.arange(n_graphs).unsqueeze(1),
-                        scaffold_batch_node.unsqueeze(1),
-                    ],
-                    dim=1,
+                        torch.arange(len(scaffold_positions), device=device) + offset
+                        for offset in offsets
+                    ]
                 )
-                pos_prev[indices] = scaffold_pos_pert_repeated
+                pos_prev[indices] = scaffold_repeated
             if self.categorical_space == "discrete":
                 # node types
                 log_node_recon = F.log_softmax(pred_node, dim=-1)
@@ -133,46 +138,34 @@ class ScaffoldedMolDiff(MolDiff):
                     t=time_step,
                     batch=batch_halfedge,
                 )
+                
+            if scaffold_node_types is not None:
+                assert self.categorical_space == "discrete" # only discrete space is supported
+                scaffold_batch_node = torch.zeros(
+                    len(scaffold_node_types), dtype=torch.long
+                ).to(device)
+                if readd_noise:
+                    scaffold_pert = self.node_transition.add_noise(  # type: ignore
+                        scaffold_node_types, time_step, scaffold_batch_node
+                    )[0].argmax(-1)
+                    scaffold_repeated = scaffold_pert.repeat(n_graphs)
+                else:
+                    scaffold_repeated = scaffold_node_types.repeat(n_graphs)
+                scaffold_repeated = self.node_transition.onehot_encode(scaffold_repeated)
+                offsets = torch.cumsum(torch.bincount(batch_node), -1)
+                offsets = torch.cat([torch.zeros(1, device=device), offsets])[:-1].long()
+                indices = torch.cat(
+                    [
+                        torch.arange(len(scaffold_node_types), device=device) + offset
+                        for offset in offsets
+                    ]
+                )
+                h_node_prev[indices] = scaffold_repeated
 
             # # use guidance to modify pos
             if guidance is not None:
                 gui_type, gui_scale = guidance
-                if gui_type == "simgen":
-                    mean_moldiff_step_size = torch.norm(
-                        (pos_prev - pos_pert).detach(), dim=-1
-                    ).mean()
-                    with torch.enable_grad():
-                        assert (
-                            self.categorical_space == "discrete"
-                        ), "simgen only works for discrete space"
-                        assert (
-                            featurizer is not None
-                        ), "featurizer is required for simgen"
-                        assert (
-                            simgen_calc is not None
-                        ), "simgen_calc is required for simgen"
-                        log_node_type_unmasked = log_node_type[
-                            :, :-1
-                        ]  # the last one is masked node
-                        node_types = log_sample_categorical(log_node_type_unmasked)
-                        atoms = to_ase(node_types, pos_prev, batch_node, featurizer)
-                        simgen_batch = simgen_calc.batch_atoms(atoms)
-                        simgen_force = simgen_calc(
-                            simgen_batch, 1 - time_step[0] / self.num_timesteps + 1e-3
-                        )
-                        force_norms = (simgen_force**2).sum(dim=-1)
-                        force_norms = force_norms.sqrt()
-                        force_norms = scatter_max(force_norms, batch_node, dim=0)[0]
-                        force_norms = force_norms[batch_node]
-                        simgen_scale = mean_moldiff_step_size * gui_scale
-                        mult = torch.where(
-                            force_norms > simgen_scale,
-                            simgen_scale / force_norms,
-                            torch.ones_like(force_norms),
-                        )
-                        delta = simgen_force * mult[:, None]
-                        pos_prev = pos_prev + delta
-                elif gui_scale > 0:
+                if gui_scale > 0:
                     assert (
                         bond_predictor is not None
                     ), "bond_predictor is required for guidance"

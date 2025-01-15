@@ -23,6 +23,7 @@ from models.guided_model import (
     SiMGenGuidanceMode,
     SiMGenGuidanceParams,
 )
+from utils.data import traj_to_ase
 from utils.reconstruct import MolReconsError, reconstruct_from_generated_with_edges
 from utils.sample import seperate_outputs
 from utils.transforms import FeaturizeMol, make_data_placeholder
@@ -87,26 +88,6 @@ class Config:
             sigma_schedule_type=self.sigma_schedule,
             constant_sigma_value=self.constant_sigma_value,
         )
-
-
-def traj_to_ase(out, featurizer, idx: int | None = None):
-    """Convert trajectory to ASE Atoms list."""
-    traj = []
-    nodes_to_elements = featurizer.nodetype_to_ele.copy()
-    nodes_to_elements[7] = 6
-    if idx is not None:
-        nodes, positions, _ = out
-        nodes = nodes[idx]
-        positions = positions[idx]
-        numbers = [nodes_to_elements[n] for n in np.argmax(nodes, axis=1)]
-        atoms = ase.Atoms(numbers, positions=positions)
-        return atoms
-    for nodes, positions, _ in zip(*out, strict=True):
-        numbers = [nodes_to_elements[n] for n in np.argmax(nodes, axis=1)]
-        atoms = ase.Atoms(numbers, positions=positions)
-        traj.append(atoms)
-    return traj
-
 
 def load_mace_and_simgen_if_needed(config: Config, featurizer: FeaturizeMol):
     """Load MACE models and ASE data only if guidance_strength>0 or importance_sampling_freq>0."""

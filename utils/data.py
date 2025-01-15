@@ -2,6 +2,7 @@ import copy
 import torch
 import numpy as np
 from torch_geometric.data import Data, Batch
+import ase
 # from torch_geometric.loader import DataLoader
 
 
@@ -41,5 +42,23 @@ def torchify_dict(data):
         else:
             output[k] = v
     return output
+
+def traj_to_ase(out, featurizer, idx: int | None = None):
+    """Convert trajectory to ASE Atoms list."""
+    traj = []
+    nodes_to_elements = featurizer.nodetype_to_ele.copy()
+    nodes_to_elements[7] = 6
+    if idx is not None:
+        nodes, positions, _ = out
+        nodes = nodes[idx]
+        positions = positions[idx]
+        numbers = [nodes_to_elements[n] for n in np.argmax(nodes, axis=1)]
+        atoms = ase.Atoms(numbers, positions=positions)
+        return atoms
+    for nodes, positions, _ in zip(*out, strict=True):
+        numbers = [nodes_to_elements[n] for n in np.argmax(nodes, axis=1)]
+        atoms = ase.Atoms(numbers, positions=positions)
+        traj.append(atoms)
+    return traj
 
     
