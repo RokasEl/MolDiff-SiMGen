@@ -5,8 +5,8 @@ from rdkit import Chem, DataStructs
 def tanimoto_sim(mol, ref):
     fp1 = Chem.RDKFingerprint(ref)
     fp2 = Chem.RDKFingerprint(mol)
-    return DataStructs.TanimotoSimilarity(fp1,fp2)
-    
+    return DataStructs.TanimotoSimilarity(fp1, fp2)
+
 
 def tanimoto_sim_N_to_1(mols, ref):
     sim = [tanimoto_sim(m, ref) for m in mols]

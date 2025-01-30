@@ -4,19 +4,21 @@ https://github.com/mattragoza/liGAN/blob/master/fitting.py
 License: GNU General Public License v2.0
 https://github.com/mattragoza/liGAN/blob/master/LICENSE
 """
-import numpy as np
-import itertools
-from copy import deepcopy
-import re
 
-from rdkit.Chem import AllChem as Chem
+import itertools
+import re
+from copy import deepcopy
+
+import numpy as np
 from rdkit import Geometry
+from rdkit.Chem import AllChem as Chem
+
 try:
     from openbabel import openbabel as ob
 except ModuleNotFoundError:
     pass
-from scipy.spatial.distance import pdist
-from scipy.spatial.distance import squareform
+from scipy.spatial.distance import pdist, squareform
+
 from .edm_bond import predict_bonds
 
 
@@ -24,8 +26,8 @@ class MolReconsError(Exception):
     pass
 
 
-def reachable_r(a,b, seenbonds):
-    '''Recursive helper.'''
+def reachable_r(a, b, seenbonds):
+    """Recursive helper."""
 
     for nbr in ob.OBAtomAtomIter(a):
         bond = a.GetBond(nbr).GetIdx()
@@ -33,27 +35,27 @@ def reachable_r(a,b, seenbonds):
             seenbonds.add(bond)
             if nbr == b:
                 return True
-            elif reachable_r(nbr,b,seenbonds):
+            elif reachable_r(nbr, b, seenbonds):
                 return True
     return False
 
 
-def reachable(a,b):
-    '''Return true if atom b is reachable from a without using the bond between them.'''
+def reachable(a, b):
+    """Return true if atom b is reachable from a without using the bond between them."""
     if a.GetExplicitDegree() == 1 or b.GetExplicitDegree() == 1:
-        return False #this is the _only_ bond for one atom
-    #otherwise do recursive traversal
+        return False  # this is the _only_ bond for one atom
+    # otherwise do recursive traversal
     seenbonds = set([a.GetBond(b).GetIdx()])
-    return reachable_r(a,b,seenbonds)
+    return reachable_r(a, b, seenbonds)
 
 
-def forms_small_angle(a,b,cutoff=45):
-    '''Return true if bond between a and b is part of a small angle
-    with a neighbor of a only.'''
+def forms_small_angle(a, b, cutoff=45):
+    """Return true if bond between a and b is part of a small angle
+    with a neighbor of a only."""
 
     for nbr in ob.OBAtomAtomIter(a):
         if nbr != b:
-            degrees = b.GetAngle(a,nbr)
+            degrees = b.GetAngle(a, nbr)
             if degrees < cutoff:
                 return True
     return False
@@ -63,24 +65,24 @@ def make_obmol(xyz, atomic_numbers):
     mol = ob.OBMol()
     mol.BeginModify()
     atoms = []
-    for xyz,t in zip(xyz, atomic_numbers):
-        x,y,z = xyz
+    for xyz, t in zip(xyz, atomic_numbers):
+        x, y, z = xyz
         # ch = struct.channels[t]
         atom = mol.NewAtom()
         atom.SetAtomicNum(t)
-        atom.SetVector(x,y,z)
+        atom.SetVector(x, y, z)
         atoms.append(atom)
     return mol, atoms
 
 
 def connect_the_dots(mol, atoms, maxbond=4):
-    '''Custom implementation of ConnectTheDots.  This is similar to
-    OpenBabel's version, but is more willing to make long bonds 
-    (up to maxbond long) to keep the molecule connected.  It also 
+    """Custom implementation of ConnectTheDots.  This is similar to
+    OpenBabel's version, but is more willing to make long bonds
+    (up to maxbond long) to keep the molecule connected.  It also
     attempts to respect atom type information from struct.
     atoms and struct need to correspond in their order
     Assumes no hydrogens or existing bonds.
-    '''
+    """
     pt = Chem.GetPeriodicTable()
 
     if len(atoms) == 0:
@@ -88,34 +90,34 @@ def connect_the_dots(mol, atoms, maxbond=4):
 
     mol.BeginModify()
 
-    #just going to to do n^2 comparisons, can worry about efficiency later
-    coords = np.array([(a.GetX(),a.GetY(),a.GetZ()) for a in atoms])
+    # just going to to do n^2 comparisons, can worry about efficiency later
+    coords = np.array([(a.GetX(), a.GetY(), a.GetZ()) for a in atoms])
     dists = squareform(pdist(coords))
     # types = [struct.channels[t].name for t in struct.c]
 
-    for (i,a) in enumerate(atoms):
-        for (j,b) in enumerate(atoms):
+    for i, a in enumerate(atoms):
+        for j, b in enumerate(atoms):
             if a == b:
                 break
-            if dists[i,j] < 0.01:  #reduce from 0.4
-                continue #don't bond too close atoms
-            if dists[i,j] < maxbond:
+            if dists[i, j] < 0.01:  # reduce from 0.4
+                continue  # don't bond too close atoms
+            if dists[i, j] < maxbond:
                 flag = 0
                 # if indicators[i][ATOM_FAMILIES_ID['Aromatic']] and indicators[j][ATOM_FAMILIES_ID['Aromatic']]:
-                    # print('Aromatic', ATOM_FAMILIES_ID['Aromatic'], indicators[i])
-                    # flag = ob.OB_AROMATIC_BOND
+                # print('Aromatic', ATOM_FAMILIES_ID['Aromatic'], indicators[i])
+                # flag = ob.OB_AROMATIC_BOND
                 # if 'Aromatic' in types[i] and 'Aromatic' in types[j]:
                 #     flag = ob.OB_AROMATIC_BOND
-                mol.AddBond(a.GetIdx(),b.GetIdx(),1,flag)
+                mol.AddBond(a.GetIdx(), b.GetIdx(), 1, flag)
 
     atom_maxb = {}
-    for (i,a) in enumerate(atoms):
-        #set max valance to the smallest max allowed by openbabel or rdkit
-        #since we want the molecule to be valid for both (rdkit is usually lower)
+    for i, a in enumerate(atoms):
+        # set max valance to the smallest max allowed by openbabel or rdkit
+        # since we want the molecule to be valid for both (rdkit is usually lower)
         maxb = ob.GetMaxBonds(a.GetAtomicNum())
-        maxb = min(maxb,pt.GetDefaultValence(a.GetAtomicNum())) 
+        maxb = min(maxb, pt.GetDefaultValence(a.GetAtomicNum()))
 
-        if a.GetAtomicNum() == 16: # sulfone check
+        if a.GetAtomicNum() == 16:  # sulfone check
             if count_nbrs_of_elem(a, 8) >= 2:
                 maxb = 6
 
@@ -124,8 +126,8 @@ def connect_the_dots(mol, atoms, maxbond=4):
         # if 'Donor' in types[i]:
         #     maxb -= 1 #leave room for hydrogen
         atom_maxb[a.GetIdx()] = maxb
-    
-    #remove any impossible bonds between halogens
+
+    # remove any impossible bonds between halogens
     for bond in ob.OBMolBondIter(mol):
         a1 = bond.GetBeginAtom()
         a2 = bond.GetEndAtom()
@@ -133,23 +135,25 @@ def connect_the_dots(mol, atoms, maxbond=4):
             mol.DeleteBond(bond)
 
     def get_bond_info(biter):
-        '''Return bonds sorted by their distortion'''
+        """Return bonds sorted by their distortion"""
         bonds = [b for b in biter]
         binfo = []
         for bond in bonds:
             bdist = bond.GetLength()
-            #compute how far away from optimal we are
+            # compute how far away from optimal we are
             a1 = bond.GetBeginAtom()
             a2 = bond.GetEndAtom()
-            ideal = ob.GetCovalentRad(a1.GetAtomicNum()) + ob.GetCovalentRad(a2.GetAtomicNum()) 
-            stretch = bdist-ideal
-            binfo.append((stretch,bdist,bond))
-        binfo.sort(reverse=True, key=lambda t: t[:2]) #most stretched bonds first
+            ideal = ob.GetCovalentRad(a1.GetAtomicNum()) + ob.GetCovalentRad(
+                a2.GetAtomicNum()
+            )
+            stretch = bdist - ideal
+            binfo.append((stretch, bdist, bond))
+        binfo.sort(reverse=True, key=lambda t: t[:2])  # most stretched bonds first
         return binfo
 
-    #prioritize removing hypervalency causing bonds, do more valent 
-    #constrained atoms first since their bonds introduce the most problems
-    #with reachability (e.g. oxygen)
+    # prioritize removing hypervalency causing bonds, do more valent
+    # constrained atoms first since their bonds introduce the most problems
+    # with reachability (e.g. oxygen)
     # hypers = sorted([(atom_maxb[a.GetIdx()],a.GetExplicitValence() - atom_maxb[a.GetIdx()], a) for a in atoms],key=lambda aa: (aa[0],-aa[1]))
     # for mb,diff,a in hypers:
     #     if a.GetExplicitValence() <= atom_maxb[a.GetIdx()]:
@@ -170,25 +174,25 @@ def connect_the_dots(mol, atoms, maxbond=4):
     #             if a.GetExplicitValence() <= atom_maxb[a.GetIdx()]:
     #                 break #let nbr atoms choose what bonds to throw out
 
-
     binfo = get_bond_info(ob.OBMolBondIter(mol))
-    #now eliminate geometrically poor bonds
-    for stretch,bdist,bond in binfo:
-        #can we remove this bond without disconnecting the molecule?
+    # now eliminate geometrically poor bonds
+    for stretch, bdist, bond in binfo:
+        # can we remove this bond without disconnecting the molecule?
         a1 = bond.GetBeginAtom()
         a2 = bond.GetEndAtom()
 
-        #as long as we aren't disconnecting, let's remove things
-        #that are excessively far away (0.45 from ConnectTheDots)
-        #get bonds to be less than max allowed
-        #also remove tight angles, because that is what ConnectTheDots does
-        if stretch > 0.45 or forms_small_angle(a1,a2) or forms_small_angle(a2,a1):
-            #don't fragment the molecule
-            if not reachable(a1,a2):
+        # as long as we aren't disconnecting, let's remove things
+        # that are excessively far away (0.45 from ConnectTheDots)
+        # get bonds to be less than max allowed
+        # also remove tight angles, because that is what ConnectTheDots does
+        if stretch > 0.45 or forms_small_angle(a1, a2) or forms_small_angle(a2, a1):
+            # don't fragment the molecule
+            if not reachable(a1, a2):
                 continue
             mol.DeleteBond(bond)
 
     mol.EndModify()
+
 
 def add_context(data):
     data.ligand_context_pos = data.ligand_pos
@@ -197,27 +201,30 @@ def add_context(data):
     data.ligand_context_bond_type = data.ligand_bond_type
     return data
 
+
 def reconstruct_from_generated_with_edges(mol_info, check_validity=True, add_edge=None):
-    xyz = mol_info['atom_pos'].tolist()
-    atomic_nums = mol_info['element'].tolist()
-    if 'bond_index' not in mol_info:
-        if add_edge == 'openbabel':
+    xyz = mol_info["atom_pos"].tolist()
+    atomic_nums = mol_info["element"].tolist()
+    if "bond_index" not in mol_info:
+        if add_edge == "openbabel":
             try:
                 return reconstruct_from_generated(mol_info)
             except:
                 raise MolReconsError()
-        elif add_edge == 'edm':
+        elif add_edge == "edm":
             bond_index, bond_type = predict_bonds(atomic_nums, np.array(xyz))
         else:
-            raise ValueError('add_edge must be openbabel or edm if bond_index is not in mol_info')
+            raise ValueError(
+                "add_edge must be openbabel or edm if bond_index is not in mol_info"
+            )
     else:
-        bond_index = mol_info['bond_index'].tolist()
-        bond_type = mol_info['bond_type'].tolist()
+        bond_index = mol_info["bond_index"].tolist()
+        bond_type = mol_info["bond_type"].tolist()
     n_atoms = len(atomic_nums)
 
     rd_mol = Chem.RWMol()
     rd_conf = Chem.Conformer(n_atoms)
-    
+
     # add atoms and coordinates
     for i, atom in enumerate(atomic_nums):
         rd_atom = Chem.Atom(atom)
@@ -225,7 +232,7 @@ def reconstruct_from_generated_with_edges(mol_info, check_validity=True, add_edg
         rd_coords = Geometry.Point3D(*xyz[i])
         rd_conf.SetAtomPosition(i, rd_coords)
     rd_mol.AddConformer(rd_conf)
-    
+
     # add bonds
     for i, type_this in enumerate(bond_type):
         node_i, node_j = bond_index[0][i], bond_index[1][i]
@@ -239,9 +246,8 @@ def reconstruct_from_generated_with_edges(mol_info, check_validity=True, add_edg
             elif type_this == 4:
                 rd_mol.AddBond(node_i, node_j, Chem.BondType.AROMATIC)
             else:
-                raise Exception('unknown bond order {}'.format(type_this))
-    
-    
+                raise Exception("unknown bond order {}".format(type_this))
+
     mol = rd_mol.GetMol()
     if check_validity:
         try:
@@ -249,28 +255,28 @@ def reconstruct_from_generated_with_edges(mol_info, check_validity=True, add_edg
             fixed = True
         except Exception as e:
             fixed = False
-        
+
         if not fixed:
             try:
                 Chem.Kekulize(deepcopy(mol))
             except Chem.rdchem.KekulizeException as e:
                 err = e
-                if 'Unkekulized' in err.args[0]:
+                if "Unkekulized" in err.args[0]:
                     mol, fixed = fix_aromatic(mol)
 
-        # valence error for N 
+        # valence error for N
         if not fixed:
             mol, fixed = fix_valence(mol)
-            
+
         if not fixed:
             mol, fixed = fix_aromatic(mol, True)
-            
+
         try:
             Chem.SanitizeMol(mol)
         except Exception as e:
             raise MolReconsError()
             # return None
-        
+
     return mol
 
 
@@ -292,6 +298,7 @@ def get_ring_sys(mol):
     ring_sys_list = [list(set(x)) for x in ring_sys_list]
     return ring_sys_list
 
+
 def fix_valence(mol):
     mol = deepcopy(mol)
     fixed = False
@@ -304,11 +311,13 @@ def fix_valence(mol):
         except Chem.rdchem.AtomValenceException as e:
             err = e
         except Exception as e:
-            return mol, False # from HERE: rerun sample
+            return mol, False  # from HERE: rerun sample
         cnt_loop += 1
         if cnt_loop > 100:
             break
-        N4_valence = re.compile(u"Explicit valence for atom # ([0-9]{1,}) N, 4, is greater than permitted")
+        N4_valence = re.compile(
+            "Explicit valence for atom # ([0-9]{1,}) N, 4, is greater than permitted"
+        )
         index = N4_valence.findall(err.args[0])
         if len(index) > 0:
             mol.GetAtomWithIdx(int(index[0])).SetFormalCharge(1)
@@ -317,9 +326,10 @@ def fix_valence(mol):
 
 def get_all_subsets(ring_list):
     all_sub_list = []
-    for n_sub in range(len(ring_list)+1):
+    for n_sub in range(len(ring_list) + 1):
         all_sub_list.extend(itertools.combinations(ring_list, n_sub))
     return all_sub_list
+
 
 def fix_aromatic(mol, strict=False):
     mol_orig = mol
@@ -328,13 +338,17 @@ def fix_aromatic(mol, strict=False):
     S_ring_list = []
     for ring_sys in get_ring_sys(mol):
         if set(ring_sys).intersection(set(atomatic_list)):
-            idx_N = [atom for atom in ring_sys if mol.GetAtomWithIdx(atom).GetSymbol() == 'N']
+            idx_N = [
+                atom for atom in ring_sys if mol.GetAtomWithIdx(atom).GetSymbol() == "N"
+            ]
             if len(idx_N) > 0:
-                idx_N.append(-1) # -1 for not add to this loop
+                idx_N.append(-1)  # -1 for not add to this loop
                 N_ring_list.append(idx_N)
-            idx_S = [atom for atom in ring_sys if mol.GetAtomWithIdx(atom).GetSymbol() == 'S']
+            idx_S = [
+                atom for atom in ring_sys if mol.GetAtomWithIdx(atom).GetSymbol() == "S"
+            ]
             if len(idx_S) > 0:
-                idx_S.append(-1) # -1 for not add to this loop
+                idx_S.append(-1)  # -1 for not add to this loop
                 S_ring_list.append(idx_S)
     # enumerate S
     fixed = False
@@ -367,7 +381,7 @@ def fix_aromatic(mol, strict=False):
             perm = [x for x in perm if x != -1]
             # print(perm)
             actions = itertools.product([0, 1], repeat=len(perm))
-            for action in actions: # add H or charge
+            for action in actions:  # add H or charge
                 mol = deepcopy(mol_orig)
                 for idx, act_atom in zip(perm, action):
                     if act_atom == 0:
@@ -389,34 +403,53 @@ def fix_aromatic(mol, strict=False):
 
 ########## the following for reconstruct_from_generated (auto add bond) ##########
 
+
 def reconstruct_from_generated(mol_info):
-    xyz = mol_info['atom_pos'].tolist()
-    atomic_nums = mol_info['element'].tolist()
+    xyz = mol_info["atom_pos"].tolist()
+    atomic_nums = mol_info["element"].tolist()
     # xyz = data.ligand_context_pos.clone().cpu().tolist()
     # atomic_nums = data.ligand_context_element.clone().cpu().tolist()
     # indicators = data.ligand_context_feature_full[:, -len(ATOM_FAMILIES_ID):].clone().cpu().bool().tolist()
 
     mol, atoms = make_obmol(xyz, atomic_nums)
-    fixup(atoms, mol, )
+    fixup(
+        atoms,
+        mol,
+    )
 
     connect_the_dots(mol, atoms, 2)
-    fixup(atoms, mol, )
+    fixup(
+        atoms,
+        mol,
+    )
     mol.EndModify()
 
-    fixup(atoms, mol, )
+    fixup(
+        atoms,
+        mol,
+    )
 
     mol.AddPolarHydrogens()
     mol.PerceiveBondOrders()
-    fixup(atoms, mol, )
+    fixup(
+        atoms,
+        mol,
+    )
 
-    for (i,a) in enumerate(atoms):
+    for i, a in enumerate(atoms):
         ob.OBAtomAssignTypicalImplicitHydrogens(a)
-    fixup(atoms, mol, )
+    fixup(
+        atoms,
+        mol,
+    )
 
     mol.AddHydrogens()
-    fixup(atoms, mol, )
+    fixup(
+        atoms,
+        mol,
+    )
 
-    #make rings all aromatic if majority of carbons are aromatic
+    # make rings all aromatic if majority of carbons are aromatic
     for ring in ob.OBMolRingIter(mol):
         if 5 <= ring.Size() <= 6:
             carbon_cnt = 0
@@ -427,19 +460,19 @@ def reconstruct_from_generated(mol_info):
                     carbon_cnt += 1
                     if a.IsAromatic():
                         aromatic_ccnt += 1
-            if aromatic_ccnt >= carbon_cnt/2 and aromatic_ccnt != ring.Size():
-                #set all ring atoms to be aromatic
+            if aromatic_ccnt >= carbon_cnt / 2 and aromatic_ccnt != ring.Size():
+                # set all ring atoms to be aromatic
                 for ai in ring._path:
                     a = mol.GetAtom(ai)
                     a.SetAromatic(True)
 
-    #bonds must be marked aromatic for smiles to match
+    # bonds must be marked aromatic for smiles to match
     for bond in ob.OBMolBondIter(mol):
         a1 = bond.GetBeginAtom()
         a2 = bond.GetEndAtom()
         if a1.IsAromatic() and a2.IsAromatic():
             bond.SetAromatic(True)
-            
+
     mol.PerceiveBondOrders()
 
     rd_mol = convert_ob_mol_to_rd_mol(mol)
@@ -451,11 +484,14 @@ def reconstruct_from_generated(mol_info):
     return rd_mol
 
 
-def fixup(atoms, mol, ):
-    '''Set atom properties to match channel.  Keep doing this
-    to beat openbabel over the head with what we want to happen.'''
+def fixup(
+    atoms,
+    mol,
+):
+    """Set atom properties to match channel.  Keep doing this
+    to beat openbabel over the head with what we want to happen."""
 
-    mol.SetAromaticPerceived(True)  #avoid perception
+    mol.SetAromaticPerceived(True)  # avoid perception
     for i, atom in enumerate(atoms):
         # ch = struct.channels[t]
         # ind = indicators[i]
@@ -469,16 +505,15 @@ def fixup(atoms, mol, ):
         #         if atom.GetHvyDegree() == 1 and atom.GetAtomicNum() == 7:
         #             atom.SetImplicitHCount(2)
         #         else:
-        #             atom.SetImplicitHCount(1) 
-
+        #             atom.SetImplicitHCount(1)
 
         # elif ind[ATOM_FAMILIES_ID['Acceptor']]: # NOT AcceptorDonor because of else
-        #     atom.SetImplicitHCount(0)   
+        #     atom.SetImplicitHCount(0)
 
-        if (atom.GetAtomicNum() in (7, 8)) and atom.IsInRing():     # Nitrogen, Oxygen
-            #this is a little iffy, ommitting until there is more evidence it is a net positive
-            #we don't have aromatic types for nitrogen, but if it
-            #is in a ring with aromatic carbon mark it aromatic as well
+        if (atom.GetAtomicNum() in (7, 8)) and atom.IsInRing():  # Nitrogen, Oxygen
+            # this is a little iffy, ommitting until there is more evidence it is a net positive
+            # we don't have aromatic types for nitrogen, but if it
+            # is in a ring with aromatic carbon mark it aromatic as well
             acnt = 0
             for nbr in ob.OBAtomAtomIter(atom):
                 if nbr.IsAromatic():
@@ -487,8 +522,8 @@ def fixup(atoms, mol, ):
                 atom.SetAromatic(True)
 
 
-def convert_ob_mol_to_rd_mol(ob_mol,struct=None):
-    '''Convert OBMol to RDKit mol, fixing up issues'''
+def convert_ob_mol_to_rd_mol(ob_mol, struct=None):
+    """Convert OBMol to RDKit mol, fixing up issues"""
     ob_mol.DeleteHydrogens()
     n_atoms = ob_mol.NumAtoms()
     rd_mol = Chem.RWMol()
@@ -496,10 +531,14 @@ def convert_ob_mol_to_rd_mol(ob_mol,struct=None):
 
     for ob_atom in ob.OBMolAtomIter(ob_mol):
         rd_atom = Chem.Atom(ob_atom.GetAtomicNum())
-        #TODO copy format charge
-        if ob_atom.IsAromatic() and ob_atom.IsInRing() and ob_atom.MemberOfRingSize() <= 6:
-            #don't commit to being aromatic unless rdkit will be okay with the ring status
-            #(this can happen if the atoms aren't fit well enough)
+        # TODO copy format charge
+        if (
+            ob_atom.IsAromatic()
+            and ob_atom.IsInRing()
+            and ob_atom.MemberOfRingSize() <= 6
+        ):
+            # don't commit to being aromatic unless rdkit will be okay with the ring status
+            # (this can happen if the atoms aren't fit well enough)
             rd_atom.SetIsAromatic(True)
         i = rd_mol.AddAtom(rd_atom)
         ob_coords = ob_atom.GetVector()
@@ -512,8 +551,8 @@ def convert_ob_mol_to_rd_mol(ob_mol,struct=None):
     rd_mol.AddConformer(rd_conf)
 
     for ob_bond in ob.OBMolBondIter(ob_mol):
-        i = ob_bond.GetBeginAtomIdx()-1
-        j = ob_bond.GetEndAtomIdx()-1
+        i = ob_bond.GetBeginAtomIdx() - 1
+        j = ob_bond.GetEndAtomIdx() - 1
         bond_order = ob_bond.GetBondOrder()
         if bond_order == 1:
             rd_mol.AddBond(i, j, Chem.BondType.SINGLE)
@@ -522,56 +561,60 @@ def convert_ob_mol_to_rd_mol(ob_mol,struct=None):
         elif bond_order == 3:
             rd_mol.AddBond(i, j, Chem.BondType.TRIPLE)
         else:
-            raise Exception('unknown bond order {}'.format(bond_order))
+            raise Exception("unknown bond order {}".format(bond_order))
 
         if ob_bond.IsAromatic():
-            bond = rd_mol.GetBondBetweenAtoms (i,j)
+            bond = rd_mol.GetBondBetweenAtoms(i, j)
             bond.SetIsAromatic(True)
 
     rd_mol = Chem.RemoveHs(rd_mol, sanitize=False)
 
     pt = Chem.GetPeriodicTable()
-    #if double/triple bonds are connected to hypervalent atoms, decrement the order
+    # if double/triple bonds are connected to hypervalent atoms, decrement the order
 
     positions = rd_mol.GetConformer().GetPositions()
     nonsingles = []
     for bond in rd_mol.GetBonds():
-        if bond.GetBondType() == Chem.BondType.DOUBLE or bond.GetBondType() == Chem.BondType.TRIPLE:
+        if (
+            bond.GetBondType() == Chem.BondType.DOUBLE
+            or bond.GetBondType() == Chem.BondType.TRIPLE
+        ):
             i = bond.GetBeginAtomIdx()
             j = bond.GetEndAtomIdx()
-            dist = np.linalg.norm(positions[i]-positions[j])
-            nonsingles.append((dist,bond))
+            dist = np.linalg.norm(positions[i] - positions[j])
+            nonsingles.append((dist, bond))
     nonsingles.sort(reverse=True, key=lambda t: t[0])
 
-    for (d,bond) in nonsingles:
+    for d, bond in nonsingles:
         a1 = bond.GetBeginAtom()
         a2 = bond.GetEndAtom()
 
-        if calc_valence(a1) > pt.GetDefaultValence(a1.GetAtomicNum()) or \
-           calc_valence(a2) > pt.GetDefaultValence(a2.GetAtomicNum()):
+        if calc_valence(a1) > pt.GetDefaultValence(a1.GetAtomicNum()) or calc_valence(
+            a2
+        ) > pt.GetDefaultValence(a2.GetAtomicNum()):
             btype = Chem.BondType.SINGLE
             if bond.GetBondType() == Chem.BondType.TRIPLE:
                 btype = Chem.BondType.DOUBLE
             bond.SetBondType(btype)
 
     for atom in rd_mol.GetAtoms():
-        #set nitrogens with 4 neighbors to have a charge
+        # set nitrogens with 4 neighbors to have a charge
         if atom.GetAtomicNum() == 7 and atom.GetDegree() == 4:
             atom.SetFormalCharge(1)
 
-    rd_mol = Chem.AddHs(rd_mol,addCoords=True)
+    rd_mol = Chem.AddHs(rd_mol, addCoords=True)
 
     positions = rd_mol.GetConformer().GetPositions()
-    center = np.mean(positions[np.all(np.isfinite(positions),axis=1)],axis=0)
+    center = np.mean(positions[np.all(np.isfinite(positions), axis=1)], axis=0)
     for atom in rd_mol.GetAtoms():
         i = atom.GetIdx()
         pos = positions[i]
         if not np.all(np.isfinite(pos)):
-            #hydrogens on C fragment get set to nan (shouldn't, but they do)
-            rd_mol.GetConformer().SetAtomPosition(i,center)
+            # hydrogens on C fragment get set to nan (shouldn't, but they do)
+            rd_mol.GetConformer().SetAtomPosition(i, center)
 
     try:
-        Chem.SanitizeMol(rd_mol,Chem.SANITIZE_ALL^Chem.SANITIZE_KEKULIZE)
+        Chem.SanitizeMol(rd_mol, Chem.SANITIZE_ALL ^ Chem.SANITIZE_KEKULIZE)
     except:
         raise MolReconsError()
     # try:
@@ -586,9 +629,9 @@ def convert_ob_mol_to_rd_mol(ob_mol,struct=None):
     #     m.write('sdf',outname,overwrite=True)
     #     pickle.dump(struct,open('bad%d.pkl'%i,'wb'))
 
-    #but at some point stop trying to enforce our aromaticity -
-    #openbabel and rdkit have different aromaticity models so they
-    #won't always agree.  Remove any aromatic bonds to non-aromatic atoms
+    # but at some point stop trying to enforce our aromaticity -
+    # openbabel and rdkit have different aromaticity models so they
+    # won't always agree.  Remove any aromatic bonds to non-aromatic atoms
     for bond in rd_mol.GetBonds():
         a1 = bond.GetBeginAtom()
         a2 = bond.GetEndAtom()
@@ -600,21 +643,29 @@ def convert_ob_mol_to_rd_mol(ob_mol,struct=None):
 
     return rd_mol
 
-UPGRADE_BOND_ORDER = {Chem.BondType.SINGLE:Chem.BondType.DOUBLE, Chem.BondType.DOUBLE:Chem.BondType.TRIPLE}
+
+UPGRADE_BOND_ORDER = {
+    Chem.BondType.SINGLE: Chem.BondType.DOUBLE,
+    Chem.BondType.DOUBLE: Chem.BondType.TRIPLE,
+}
+
 
 def postprocess_rd_mol_1(rdmol):
-
     rdmol = Chem.RemoveHs(rdmol)
 
     # Construct bond nbh list
     nbh_list = {}
     for bond in rdmol.GetBonds():
-        begin, end = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx() 
-        if begin not in nbh_list: nbh_list[begin] = [end]
-        else: nbh_list[begin].append(end)
-            
-        if end not in nbh_list: nbh_list[end] = [begin]
-        else: nbh_list[end].append(begin)
+        begin, end = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+        if begin not in nbh_list:
+            nbh_list[begin] = [end]
+        else:
+            nbh_list[begin].append(end)
+
+        if end not in nbh_list:
+            nbh_list[end] = [begin]
+        else:
+            nbh_list[end].append(begin)
 
     # Fix missing bond-order
     for atom in rdmol.GetAtoms():
@@ -622,7 +673,8 @@ def postprocess_rd_mol_1(rdmol):
         num_radical = atom.GetNumRadicalElectrons()
         if num_radical > 0:
             for j in nbh_list[idx]:
-                if j <= idx: continue
+                if j <= idx:
+                    continue
                 nb_atom = rdmol.GetAtomWithIdx(j)
                 nb_radical = nb_atom.GetNumRadicalElectrons()
                 if nb_radical > 0:
@@ -637,7 +689,7 @@ def postprocess_rd_mol_1(rdmol):
             atom.SetNumRadicalElectrons(0)
             num_hs = atom.GetNumExplicitHs()
             atom.SetNumExplicitHs(num_hs + num_radical)
-            
+
     return rdmol
 
 
@@ -653,7 +705,7 @@ def postprocess_rd_mol_2(rdmol):
             atom_by_symb = {}
             for atom_idx in ring_a:
                 symb = rdmol.GetAtomWithIdx(atom_idx).GetSymbol()
-                if symb != 'C':
+                if symb != "C":
                     non_carbon.append(atom_idx)
                 if symb not in atom_by_symb:
                     atom_by_symb[symb] = [atom_idx]
@@ -661,13 +713,15 @@ def postprocess_rd_mol_2(rdmol):
                     atom_by_symb[symb].append(atom_idx)
             if len(non_carbon) == 2:
                 rdmol_edit.RemoveBond(*non_carbon)
-            if 'O' in atom_by_symb and len(atom_by_symb['O']) == 2:
-                rdmol_edit.RemoveBond(*atom_by_symb['O'])
-                rdmol_edit.GetAtomWithIdx(atom_by_symb['O'][0]).SetNumExplicitHs(
-                    rdmol_edit.GetAtomWithIdx(atom_by_symb['O'][0]).GetNumExplicitHs() + 1
+            if "O" in atom_by_symb and len(atom_by_symb["O"]) == 2:
+                rdmol_edit.RemoveBond(*atom_by_symb["O"])
+                rdmol_edit.GetAtomWithIdx(atom_by_symb["O"][0]).SetNumExplicitHs(
+                    rdmol_edit.GetAtomWithIdx(atom_by_symb["O"][0]).GetNumExplicitHs()
+                    + 1
                 )
-                rdmol_edit.GetAtomWithIdx(atom_by_symb['O'][1]).SetNumExplicitHs(
-                    rdmol_edit.GetAtomWithIdx(atom_by_symb['O'][1]).GetNumExplicitHs() + 1
+                rdmol_edit.GetAtomWithIdx(atom_by_symb["O"][1]).SetNumExplicitHs(
+                    rdmol_edit.GetAtomWithIdx(atom_by_symb["O"][1]).GetNumExplicitHs()
+                    + 1
                 )
     rdmol = rdmol_edit.GetMol()
 
@@ -676,11 +730,11 @@ def postprocess_rd_mol_2(rdmol):
             atom.SetFormalCharge(0)
 
     return rdmol
-    
+
 
 def calc_valence(rdatom):
-    '''Can call GetExplicitValence before sanitize, but need to
-    know this to fix up the molecule to prevent sanitization failures'''
+    """Can call GetExplicitValence before sanitize, but need to
+    know this to fix up the molecule to prevent sanitization failures"""
     cnt = 0.0
     for bond in rdatom.GetBonds():
         cnt += bond.GetBondTypeAsDouble()
@@ -688,10 +742,10 @@ def calc_valence(rdatom):
 
 
 def count_nbrs_of_elem(atom, atomic_num):
-    '''
+    """
     Count the number of neighbors atoms
     of atom with the given atomic_num.
-    '''
+    """
     count = 0
     for nbr in ob.OBAtomAtomIter(atom):
         if nbr.GetAtomicNum() == atomic_num:

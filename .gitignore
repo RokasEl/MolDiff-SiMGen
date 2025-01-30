@@ -1,0 +1,31 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Data files
+*.txt
+*.xyz
+outputs/
+*.pt
+logs/
+results/
+data/
+screen_configs/
+production_configs/
+production_configs_low_t/
+*.log
+launch_*
+screen_configs_inverse_summation/
+results_inverse_summation/
+*.pdb
+*.traj
+*.npy
+results_production/
+results_production_scaffolded/
+.vscode/
+results_*
+production_configs_*
+*.png
+*.svg
+*.pdf
