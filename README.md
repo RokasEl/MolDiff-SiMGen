@@ -2,6 +2,8 @@
 
 This repository is a fork of the [MolDiff](https://github.com/pengxingang/MolDiff). We have added an integration with [SiMGen](https://github.com/RokasEl/simgen) to do guided generation. The main changes are all inside `./models/guided_model.py`. Generation can be run with `./guided_moldiff.py $PATH_TO_CONFIG` where `$PATH_TO_CONFIG` is the path to a config file (see examples in the `./production_configs/` folder).
 
+Below is the original README from the MolDiff repository.
+
 # MolDiff: Addressing the Atom-Bond Inconsistency Problem in 3D Molecule Diffusion Generation (ICML 2023)
 > This is **A Tailored Diffusion Framework for Generating 3D Drug-Like Molecules**, with sampling success rate of **>99\%**, almost threefold increase compared to the previous diffusion model. 
 
