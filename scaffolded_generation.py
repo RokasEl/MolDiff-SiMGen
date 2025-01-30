@@ -1,14 +1,11 @@
 import logging
 import pathlib
-from dataclasses import dataclass
-from typing import Mapping
 
 import ase
 import ase.io as aio
 import numpy as np
 import torch
 import typer
-import yaml
 from rdkit import Chem
 from simgen.utils import setup_logger
 

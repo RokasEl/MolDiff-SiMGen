@@ -7,11 +7,11 @@ from typing import Sequence
 
 import numpy as np
 import torch
+from joblib import Parallel, delayed
 from rdkit import Chem, DataStructs
 from rdkit.Chem import AllChem, Crippen, Descriptors, Lipinski
 from rdkit.Chem.FilterCatalog import *
 from rdkit.Chem.QED import qed
-from joblib import Parallel, delayed
 from rdkit.DataStructs import TanimotoSimilarity
 from sklearn.cluster import DBSCAN
 from tqdm import tqdm

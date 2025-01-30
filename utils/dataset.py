@@ -1,16 +1,16 @@
-import pickle
 import os
+import pickle
 
-import torch
+import lmdb
 import numpy as np
 import pandas as pd
-import lmdb
+import torch
 from rdkit import Chem
+from torch.utils.data import Dataset, Subset
 from tqdm import tqdm
 
-from torch.utils.data import Subset, Dataset
-from .parser import parse_conf_list
 from .data import Drug3DData, torchify_dict
+from .parser import parse_conf_list
 
 
 def get_dataset(config, *args, **kwargs):

@@ -1,24 +1,23 @@
-import sys
+import argparse
 import os
 import shutil
-import argparse
+import sys
 
 sys.path.append(".")
 
-from tqdm import tqdm
 import torch
+from tqdm import tqdm
 
 torch.multiprocessing.set_sharing_strategy("file_system")
-from torch.nn.utils import clip_grad_norm_
 import torch.utils.tensorboard
+from torch.nn.utils import clip_grad_norm_
 from torch_geometric.loader import DataLoader
 
 from models.model import MolDiff
 from utils.dataset import get_dataset
-from utils.transforms import FeaturizeMol, Compose
 from utils.misc import *
 from utils.train import *
-
+from utils.transforms import Compose, FeaturizeMol
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

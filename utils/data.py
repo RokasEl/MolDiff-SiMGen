@@ -1,8 +1,10 @@
 import copy
-import torch
-import numpy as np
-from torch_geometric.data import Data, Batch
+
 import ase
+import numpy as np
+import torch
+from torch_geometric.data import Batch, Data
+
 # from torch_geometric.loader import DataLoader
 
 

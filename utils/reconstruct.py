@@ -5,20 +5,20 @@ License: GNU General Public License v2.0
 https://github.com/mattragoza/liGAN/blob/master/LICENSE
 """
 
-import numpy as np
 import itertools
-from copy import deepcopy
 import re
+from copy import deepcopy
 
-from rdkit.Chem import AllChem as Chem
+import numpy as np
 from rdkit import Geometry
+from rdkit.Chem import AllChem as Chem
 
 try:
     from openbabel import openbabel as ob
 except ModuleNotFoundError:
     pass
-from scipy.spatial.distance import pdist
-from scipy.spatial.distance import squareform
+from scipy.spatial.distance import pdist, squareform
+
 from .edm_bond import predict_bonds
 
 

@@ -1,6 +1,8 @@
 import os
+
 import numpy as np
 from rdkit import Chem
+
 # from rdkit.Chem.rdchem import BondType
 # from rdkit.Chem import ChemicalFeatures
 # from rdkit import RDConfig

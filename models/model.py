@@ -1,10 +1,11 @@
-from tqdm import tqdm
+import ase
 import torch
 from torch.nn import Module
 from torch.nn import functional as F
-from models.transition import ContigousTransition, GeneralCategoricalTransition
+from tqdm import tqdm
+
 from models.graph import NodeEdgeNet
-import ase
+from models.transition import ContigousTransition, GeneralCategoricalTransition
 
 from .common import *
 from .diffusion import *

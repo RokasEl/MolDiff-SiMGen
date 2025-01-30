@@ -1,12 +1,13 @@
-import os
-import time
-import random
 import logging
-import torch
+import os
+import random
+import time
+from logging import Logger
+
 import numpy as np
+import torch
 import yaml
 from easydict import EasyDict
-from logging import Logger
 from tqdm.auto import tqdm
 
 

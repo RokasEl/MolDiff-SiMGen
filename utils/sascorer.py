@@ -17,15 +17,14 @@
 #
 from __future__ import print_function
 
-from rdkit import Chem
-from rdkit.Chem import rdMolDescriptors
-from rdkit.six.moves import cPickle
-from rdkit.six import iteritems
-
 import math
+import os.path as op
 from collections import defaultdict
 
-import os.path as op
+from rdkit import Chem
+from rdkit.Chem import rdMolDescriptors
+from rdkit.six import iteritems
+from rdkit.six.moves import cPickle
 
 _fscores = None
 
@@ -136,7 +135,8 @@ def processMols(mols):
 
 
 if __name__ == "__main__":
-    import sys, time
+    import sys
+    import time
 
     t1 = time.time()
     readFragmentScores("fpscores")

@@ -1,6 +1,6 @@
+import numpy as np
 import torch
 import torch.nn.functional as F
-import numpy as np
 from scipy.special import softmax
 from torch_geometric.transforms import Compose  # imported by train.py
 

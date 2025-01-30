@@ -1,12 +1,13 @@
-import pathlib
 import argparse
-from rdkit import Chem
-from mace.calculators import mace_off
-import numpy as np
+import pathlib
+
 import ase
 import ase.io as aio
-from simgen.calculators import MaceSimilarityCalculator
+import numpy as np
 import torch
+from mace.calculators import mace_off
+from rdkit import Chem
+from simgen.calculators import MaceSimilarityCalculator
 from torch_scatter import scatter_logsumexp
 
 

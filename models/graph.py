@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn import Module, Sequential, Linear, Conv1d, ModuleList
-from torch_scatter import scatter_sum, scatter_softmax
-from torch_geometric.nn import radius_graph, knn_graph
-from models.common import GaussianSmearing, MLP, NONLINEARITIES
+from torch.nn import Conv1d, Linear, Module, ModuleList, Sequential
+from torch_geometric.nn import knn_graph, radius_graph
+from torch_scatter import scatter_softmax, scatter_sum
+
+from models.common import MLP, NONLINEARITIES, GaussianSmearing
 
 
 class NodeBlock(Module):

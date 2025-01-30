@@ -1,4 +1,5 @@
 from typing import Callable
+
 import torch
 import torch.nn.functional as F
 from torch_scatter import scatter_max

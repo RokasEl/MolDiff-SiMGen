@@ -2,8 +2,9 @@ import torch
 from torch.nn import Module
 from torch.nn import functional as F
 
-from models.transition import ContigousTransition, GeneralCategoricalTransition
 from models.graph import NodeEdgeNet
+from models.transition import ContigousTransition, GeneralCategoricalTransition
+
 from .common import *
 from .diffusion import *
 

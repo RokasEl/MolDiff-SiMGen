@@ -1,12 +1,13 @@
 import math
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.modules.loss import _WeightedLoss
-from torch_scatter import scatter_mean, scatter_add, scatter_max
 from torch_geometric.nn import knn
 from torch_geometric.nn.pool import knn_graph
-import numpy as np
+from torch_scatter import scatter_add, scatter_max, scatter_mean
 
 
 def split_tensor_by_batch(x, batch, num_graphs=None):

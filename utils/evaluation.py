@@ -1,13 +1,15 @@
 import logging
-from rdkit import Chem
-import numpy as np
-from tqdm import tqdm
-from .scoring_func import *
-from multiprocessing import Pool
+from collections import Counter
 from functools import partial
 from itertools import combinations
-from collections import Counter
+from multiprocessing import Pool
+
+import numpy as np
+from rdkit import Chem
 from rdkit.Chem import Fragments as frag_func
+from tqdm import tqdm
+
+from .scoring_func import *
 
 
 def get_drug_chem(mol):
