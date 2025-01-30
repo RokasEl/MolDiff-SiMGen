@@ -68,17 +68,19 @@ for i in range(start_idx, start_idx + num_configs):
     sigma_schedule = "matching"
     constant_sigma_value = rng.uniform(0.5, 2)
 
-    is_frequency = [25, 50, 100][i%3]
+    is_frequency = [25, 50, 100][i % 3]
     inverse_temperature = rng.uniform(1e-3, 1e-2)
     mini_batch = rng.choice([4, 8, 16])
 
     config = {
         "experiment_name": f"exp_{i}",
-        "results_dir": "./results/" if guidance_mode == "direct" else "./results_inverse_summation/",
+        "results_dir": "./results/"
+        if guidance_mode == "direct"
+        else "./results_inverse_summation/",
         "batch_size": 128,
         "num_mols": 512,
         "max_size": 20,
-        "guidance_mode": guidance_mode,  
+        "guidance_mode": guidance_mode,
         "guidance_strength": float(guidance_strength),
         "min_gui_scale": float(min_gui_strength),
         "scale_mode": str(scale_mode),

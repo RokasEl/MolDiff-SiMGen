@@ -34,7 +34,7 @@ def main(
 ):
     penicillin_analogues = aio.read("./penicillin_analogues.xyz", index=":")
     core_ids = np.load("./penicillin_core_ids.npy")
-    penicillin_core:ase.Atoms  = penicillin_analogues[0][core_ids[0]] # type: ignore
+    penicillin_core: ase.Atoms = penicillin_analogues[0][core_ids[0]]  # type: ignore
     setup_logger(
         tag=f"scaffolded_moldiff_{experiment_name}",
         level=logging.INFO,
@@ -74,7 +74,9 @@ def main(
         bond_predictor = None
         guidance = None
 
-    core_positions = penicillin_core.get_positions()-penicillin_core.get_center_of_mass()
+    core_positions = (
+        penicillin_core.get_positions() - penicillin_core.get_center_of_mass()
+    )
     core_positions = torch.tensor(core_positions, dtype=torch.float32).to("cuda")
     core_numbers = penicillin_core.get_atomic_numbers()
     core_node_types = [featurizer.ele_to_nodetype[x] for x in core_numbers]
@@ -97,8 +99,8 @@ def main(
             batch_halfedge=batch_holder["batch_halfedge"],
             bond_predictor=bond_predictor,
             guidance=guidance,
-            scaffold_positions = core_positions,
-            scaffold_node_types = core_node_types,
+            scaffold_positions=core_positions,
+            scaffold_node_types=core_node_types,
             readd_noise=readd_noise,
         )
         outputs = {

@@ -9,6 +9,7 @@ from simgen.calculators import MaceSimilarityCalculator
 import torch
 from torch_scatter import scatter_logsumexp
 
+
 def rdkit_mol_2_ase(mol):
     if mol is None:
         return None
@@ -16,15 +17,21 @@ def rdkit_mol_2_ase(mol):
     positions = mol.GetConformer().GetPositions()
     return ase.Atoms(symbols, positions)
 
+
 @torch.no_grad()
 def calculate_log_dens(sim_calc, atoms_list, noise_level=1.0):
     batch = sim_calc.batch_atoms(atoms_list)
     embeddings = sim_calc._get_node_embeddings(batch)
-    squared_distance_matrix = sim_calc._calculate_distance_matrix(embeddings, batch.node_attrs)
-    additional_multiplier = 119 * (1 - (noise_level / 10) ** 0.25) + 1 if noise_level <= 10 else 1
+    squared_distance_matrix = sim_calc._calculate_distance_matrix(
+        embeddings, batch.node_attrs
+    )
+    additional_multiplier = (
+        119 * (1 - (noise_level / 10) ** 0.25) + 1 if noise_level <= 10 else 1
+    )
     squared_distance_matrix = squared_distance_matrix * additional_multiplier
     log_dens = scatter_logsumexp(-squared_distance_matrix / 2, batch.batch, dim=0)
     return log_dens.sum(dim=-1)
+
 
 def evaluate_mols(sim_calc, mols, batch_size=128, noise_level=1.0):
     generated_densities = np.full(len(mols), np.nan)
@@ -35,8 +42,11 @@ def evaluate_mols(sim_calc, mols, batch_size=128, noise_level=1.0):
         if valid_indices:
             batch_atoms = [batch_slice[i] for i in valid_indices]
             log_dens = calculate_log_dens(sim_calc, batch_atoms, noise_level)
-            generated_densities[start_idx + np.array(valid_indices)] = log_dens.cpu().numpy()
+            generated_densities[start_idx + np.array(valid_indices)] = (
+                log_dens.cpu().numpy()
+            )
     return generated_densities
+
 
 def evaluate_experiments(experiment_folders, sim_calc, save_name="log_densities.npy"):
     for exp_folder in experiment_folders:
@@ -52,10 +62,11 @@ def evaluate_experiments(experiment_folders, sim_calc, save_name="log_densities.
         densities = evaluate_mols(sim_calc, mols, batch_size=128, noise_level=1.0)
         print(f"Experiment: {exp_folder.name}")
         for i, d in enumerate(densities):
-            print(f"  Molecule {i+1}: Log Density = {d}")
+            print(f"  Molecule {i + 1}: Log Density = {d}")
         np.save(exp_folder / save_name, densities)
-        
-def get_ref_atoms_and_core_masks(keep_hs:bool=True):
+
+
+def get_ref_atoms_and_core_masks(keep_hs: bool = True):
     ref_atoms = aio.read("./penicillin_analogues.xyz", index=":")
     core_atoms = np.load("./penicillin_core_ids.npy")
     if not keep_hs:
@@ -66,7 +77,7 @@ def get_ref_atoms_and_core_masks(keep_hs:bool=True):
         cm[mask] = True
         core_masks.append(cm)
     return ref_atoms, core_masks
-    
+
 
 def main(results_root: str, exp_name: str | None = None):
     calc = mace_off("medium", device="cuda", default_dtype="float32")
@@ -90,11 +101,13 @@ def main(results_root: str, exp_name: str | None = None):
         experiment_folders = [results_path / exp_name]
     else:
         experiment_folders = [
-            f for f in results_path.iterdir() if f.is_dir() and f.name.startswith("exp_")
+            f
+            for f in results_path.iterdir()
+            if f.is_dir() and f.name.startswith("exp_")
         ]
 
     evaluate_experiments(experiment_folders, sim_calc)
-    
+
     ref_atoms_no_h, core_masks_no_h = get_ref_atoms_and_core_masks(keep_hs=False)
     sim_calc_no_h = MaceSimilarityCalculator(
         calc.models[0],
@@ -105,7 +118,10 @@ def main(results_root: str, exp_name: str | None = None):
         max_norm=None,
         element_sigma_array=element_sigma_array,
     )
-    evaluate_experiments(experiment_folders, sim_calc_no_h, save_name="log_densities_no_h.npy")
+    evaluate_experiments(
+        experiment_folders, sim_calc_no_h, save_name="log_densities_no_h.npy"
+    )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

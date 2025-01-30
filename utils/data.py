@@ -7,7 +7,6 @@ import ase
 
 
 class Drug3DData(Data):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -18,18 +17,18 @@ class Drug3DData(Data):
         if ligand_dict is not None:
             for key, item in ligand_dict.items():
                 instance[key] = item
-            instance['orig_keys'] = list(ligand_dict.keys())
+            instance["orig_keys"] = list(ligand_dict.keys())
 
         # instance['nbh_list'] = {i.item():[j.item() for k, j in enumerate(instance.ligand_bond_index[1]) if instance.ligand_bond_index[0, k].item() == i] for i in instance.ligand_bond_index[0]}
         return instance
 
     def __inc__(self, key, value, *args, **kwargs):
-        if key == 'bond_index':
-            return len(self['node_type'])
-        elif key == 'edge_index':
-            return len(self['node_type'])
-        elif key == 'halfedge_index':
-            return len(self['node_type'])
+        if key == "bond_index":
+            return len(self["node_type"])
+        elif key == "edge_index":
+            return len(self["node_type"])
+        elif key == "halfedge_index":
+            return len(self["node_type"])
         else:
             return super().__inc__(key, value, *args, **kwargs)
 
@@ -42,6 +41,7 @@ def torchify_dict(data):
         else:
             output[k] = v
     return output
+
 
 def traj_to_ase(out, featurizer, idx: int | None = None):
     """Convert trajectory to ASE Atoms list."""
@@ -60,5 +60,3 @@ def traj_to_ase(out, featurizer, idx: int | None = None):
         atoms = ase.Atoms(numbers, positions=positions)
         traj.append(atoms)
     return traj
-
-    

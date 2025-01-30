@@ -9,10 +9,12 @@ import ase
 from .common import *
 from .diffusion import *
 
+
 def to_ase_single(node_types, pos_prev, featurizer):
     numbers = [featurizer.nodetype_to_ele[x.item()] for x in node_types]
     pos = pos_prev.detach().cpu().numpy()
     return ase.Atoms(numbers=numbers, positions=pos, cell=None)
+
 
 def to_ase(node_types, pos_prev, batch_idx, featurizer):
     atoms = []
@@ -23,6 +25,8 @@ def to_ase(node_types, pos_prev, batch_idx, featurizer):
         pos = pos_prev[mask]
         atoms.append(to_ase_single(node_type, pos, featurizer))
     return atoms
+
+
 class MolDiff(Module):
     def __init__(
         self,
@@ -434,27 +438,39 @@ class MolDiff(Module):
             if guidance is not None:
                 gui_type, gui_scale = guidance
                 if gui_type == "simgen":
-                    mean_moldiff_step_size = torch.norm((pos_prev - pos_pert).detach(), dim=-1).mean()
+                    mean_moldiff_step_size = torch.norm(
+                        (pos_prev - pos_pert).detach(), dim=-1
+                    ).mean()
                     with torch.enable_grad():
-                        assert (
-                            self.categorical_space == "discrete"
-                        ), "simgen only works for discrete space"
-                        assert featurizer is not None, "featurizer is required for simgen"
-                        assert simgen_calc is not None, "simgen_calc is required for simgen"
+                        assert self.categorical_space == "discrete", (
+                            "simgen only works for discrete space"
+                        )
+                        assert featurizer is not None, (
+                            "featurizer is required for simgen"
+                        )
+                        assert simgen_calc is not None, (
+                            "simgen_calc is required for simgen"
+                        )
                         log_node_type_unmasked = log_node_type[
                             :, :-1
                         ]  # the last one is masked node
                         node_types = log_sample_categorical(log_node_type_unmasked)
                         atoms = to_ase(node_types, pos_prev, batch_node, featurizer)
                         simgen_batch = simgen_calc.batch_atoms(atoms)
-                        simgen_force = simgen_calc(simgen_batch, 1 - time_step[0]/self.num_timesteps+ 1e-3)
+                        simgen_force = simgen_calc(
+                            simgen_batch, 1 - time_step[0] / self.num_timesteps + 1e-3
+                        )
                         force_norms = (simgen_force**2).sum(dim=-1)
                         force_norms = force_norms.sqrt()
                         force_norms = scatter_max(force_norms, batch_node, dim=0)[0]
                         force_norms = force_norms[batch_node]
                         simgen_scale = mean_moldiff_step_size * gui_scale
-                        mult = torch.where(force_norms > simgen_scale, simgen_scale / force_norms, torch.ones_like(force_norms))
-                        delta = simgen_force * mult[:, None]                     
+                        mult = torch.where(
+                            force_norms > simgen_scale,
+                            simgen_scale / force_norms,
+                            torch.ones_like(force_norms),
+                        )
+                        delta = simgen_force * mult[:, None]
                         pos_prev = pos_prev + delta
                 elif gui_scale > 0:
                     with torch.enable_grad():

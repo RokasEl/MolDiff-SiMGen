@@ -12,9 +12,12 @@ def show(x):
     IPythonConsole.drawMol3D(x)
     return x
 
-def show_mols(mols, molsPerRow=8, subImgSize=(250,200)):
+
+def show_mols(mols, molsPerRow=8, subImgSize=(250, 200)):
     """
     Show many molecules with 2D in mesh
     """
     mols2d = [Chem.MolFromSmiles(Chem.MolToSmiles(x)) for x in mols]
-    return Chem.Draw.MolsToGridImage(mols2d, molsPerRow=molsPerRow, subImgSize=subImgSize)
+    return Chem.Draw.MolsToGridImage(
+        mols2d, molsPerRow=molsPerRow, subImgSize=subImgSize
+    )

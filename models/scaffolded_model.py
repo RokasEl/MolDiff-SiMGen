@@ -99,7 +99,9 @@ class ScaffoldedMolDiff(MolDiff):
                 else:
                     scaffold_repeated = scaffold_positions.repeat(n_graphs, 1)
                 offsets = torch.cumsum(torch.bincount(batch_node), -1)
-                offsets = torch.cat([torch.zeros(1, device=device), offsets])[:-1].long()
+                offsets = torch.cat([torch.zeros(1, device=device), offsets])[
+                    :-1
+                ].long()
                 indices = torch.cat(
                     [
                         torch.arange(len(scaffold_positions), device=device) + offset
@@ -138,9 +140,11 @@ class ScaffoldedMolDiff(MolDiff):
                     t=time_step,
                     batch=batch_halfedge,
                 )
-                
+
             if scaffold_node_types is not None:
-                assert self.categorical_space == "discrete" # only discrete space is supported
+                assert (
+                    self.categorical_space == "discrete"
+                )  # only discrete space is supported
                 scaffold_batch_node = torch.zeros(
                     len(scaffold_node_types), dtype=torch.long
                 ).to(device)
@@ -151,9 +155,13 @@ class ScaffoldedMolDiff(MolDiff):
                     scaffold_repeated = scaffold_pert.repeat(n_graphs)
                 else:
                     scaffold_repeated = scaffold_node_types.repeat(n_graphs)
-                scaffold_repeated = self.node_transition.onehot_encode(scaffold_repeated)
+                scaffold_repeated = self.node_transition.onehot_encode(
+                    scaffold_repeated
+                )
                 offsets = torch.cumsum(torch.bincount(batch_node), -1)
-                offsets = torch.cat([torch.zeros(1, device=device), offsets])[:-1].long()
+                offsets = torch.cat([torch.zeros(1, device=device), offsets])[
+                    :-1
+                ].long()
                 indices = torch.cat(
                     [
                         torch.arange(len(scaffold_node_types), device=device) + offset
@@ -166,9 +174,9 @@ class ScaffoldedMolDiff(MolDiff):
             if guidance is not None:
                 gui_type, gui_scale = guidance
                 if gui_scale > 0:
-                    assert (
-                        bond_predictor is not None
-                    ), "bond_predictor is required for guidance"
+                    assert bond_predictor is not None, (
+                        "bond_predictor is required for guidance"
+                    )
                     with torch.enable_grad():
                         h_node_in = h_node_pert.detach()
                         pos_in = pos_pert.detach().requires_grad_(True)

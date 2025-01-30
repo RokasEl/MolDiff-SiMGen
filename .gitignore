@@ -22,4 +22,10 @@ results_inverse_summation/
 *.traj
 *.npy
 results_production/
+results_production_scaffolded/
 .vscode/
+results_*
+production_configs_*
+*.png
+*.svg
+*.pdf
