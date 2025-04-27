@@ -1,3 +1,5 @@
+[![DOI](https://img.shields.io/badge/arXiv-2402.08708-red)](https://arxiv.org/abs/2402.08708) [![DOI](https://zenodo.org/badge/899077041.svg)](https://zenodo.org/badge/latestdoi/899077041)
+
 # MolDiff-SiMGen integration
 
 This repository is a fork of the [MolDiff](https://github.com/pengxingang/MolDiff). We have added an integration with [SiMGen](https://github.com/RokasEl/simgen) to do guided generation. The main changes are all inside `./models/guided_model.py`. Generation can be run with `./guided_moldiff.py $PATH_TO_CONFIG` where `$PATH_TO_CONFIG` is the path to a config file (see examples in the `./production_configs/` folder).
